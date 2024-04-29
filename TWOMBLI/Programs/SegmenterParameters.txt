@@ -1,0 +1,7 @@
+Number of Labels,48
+Max Iterations,30
+Normalized Hue Value,1.0
+Color Threshold,0.2
+Min Size,64
+Max Size,2048
+Mode,both

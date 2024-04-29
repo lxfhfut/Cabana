@@ -1,0 +1,12 @@
+Dark Line,1
+Contrast Saturation,0
+Min Line Width,6
+Max Line Width,12
+Line Width Step,3
+Low Contrast,190
+High Contrast,250
+Min Curvature Window,20
+Max Curvature Window,40
+Minimum Branch Length,5
+Maximum Display HDM,200
+Minimum Gap Diameter,20
