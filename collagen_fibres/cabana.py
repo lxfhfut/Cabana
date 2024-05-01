@@ -8,6 +8,10 @@ import pandas as pd
 from glob import glob
 from log import Log
 import tifffile as tiff
+import yaml
+import imageio.v3 as iio
+from detector import MSRidgeDetector
+from hdm import quantify_black_space
 import xml.etree.ElementTree as ET
 
 from pathlib import Path
@@ -22,12 +26,14 @@ from skimage.color import rgb2hed, hed2rgb, rgb2gray
 class Cabana:
     def __init__(self, ij, program_folder, input_folder, out_folder,
                  batch_size=5, batch_idx=0, ignore_oversized=True):
-        self.program_name = "Twombli_v5.ijm"
-        self.seg_param_file = "SegmenterParameters.txt"
-        self.twombli_param_file = "TwombliParameters.txt"
-        self.anamorf_param_file = "AnamorfProperties.xml"
+        # self.program_name = "Twombli_v5.ijm"
+        # self.seg_param_file = "SegmenterParameters.txt"
+        # self.twombli_param_file = "TwombliParameters.txt"
+        # self.anamorf_param_file = "AnamorfProperties.xml"
+        self.param_file = "Parameters.yml"
 
-        self.args = parse_args()
+        self.args = None  # args for Cabana program
+        self.seg_args = parse_args()  # args for segmentation
         self.ims_res = 1  # µm/pixel
 
         self.ij = ij
@@ -56,56 +62,71 @@ class Cabana:
         create_folder(self.color_dir)
         create_folder(self.roi_dir)
         create_folder(self.bin_dir)
-        setattr(self.args, 'roi_dir', self.roi_dir)
-        setattr(self.args, 'bin_dir', self.bin_dir)
+        setattr(self.seg_args, 'roi_dir', self.roi_dir)
+        setattr(self.seg_args, 'bin_dir', self.bin_dir)
 
     def initialize_params(self):
         Log.init_log_path(join_path(self.program_folder, 'logs'))
         Log.logger.info('Logs folder: {}'.format(join_path(self.program_folder, 'logs')))
-        seg_param_path = join_path(self.program_folder, self.seg_param_file)
-        with open(seg_param_path) as f:
-            lines = f.readlines()
-            for line in lines:
-                param_pair = line.rstrip().split(",")
-                key = param_pair[0]
-                value = param_pair[1]
-                if key == "Number of Labels":
-                    setattr(self.args, 'num_channels', int(value))
-                elif key == "Max Iterations":
-                    setattr(self.args, 'max_iter', int(value))
-                elif key == "Normalized Hue Value":
-                    setattr(self.args, 'hue_value', float(value))
-                elif key == "Color Threshold":
-                    setattr(self.args, 'rt', float(value))
-                elif key == "Min Size":
-                    setattr(self.args, 'min_size', int(value))
-                elif key == "Max Size":
-                    setattr(self.args, 'max_size', int(value))
-                elif key == "Mode":
-                    if value.lower() in ['both', 'twombli', 'segmentation']:
-                        setattr(self.args, 'mode', value.lower())
-                    else:
-                        Log.logger.warning("Invalid mode parameter {}, set to default 'both'.".format(value))
-                else:
-                    Log.logger.warning('Invalid parameter {}'.format(key))
-        Log.log_parameters(seg_param_path)
+        param_path = join_path(self.program_folder, self.param_file)
+        with open(param_path) as pf:
+            try:
+                self.args = yaml.safe_load(pf)
+            except yaml.YAMLError as exc:
+                print(exc)
+        # print(self.args['Initialization']['Max Size'])
+        # overwrite some fields of seg_args
+        setattr(self.seg_args, 'num_channels', int(self.args['Segmentation']["Number of Labels"]))
+        setattr(self.seg_args, 'max_iter', int(self.args['Segmentation']["Max Iterations"]))
+        setattr(self.seg_args, 'hue_value', float(self.args['Segmentation']["Normalized Hue Value"]))
+        setattr(self.seg_args, 'rt', float(self.args['Segmentation']["Color Threshold"]))
+        setattr(self.seg_args, 'max_size', int(self.args['Segmentation']["Max Size"]))
+        setattr(self.seg_args, 'min_size', int(self.args['Segmentation']["Min Size"]))
+
+        # seg_param_path = join_path(self.program_folder, self.seg_param_file)
+        # with open(seg_param_path) as f:
+        #     lines = f.readlines()
+        #     for line in lines:
+        #         param_pair = line.rstrip().split(",")
+        #         key = param_pair[0]
+        #         value = param_pair[1]
+        #         if key == "Number of Labels":
+        #             setattr(self.args, 'num_channels', int(value))
+        #         elif key == "Max Iterations":
+        #             setattr(self.args, 'max_iter', int(value))
+        #         elif key == "Normalized Hue Value":
+        #             setattr(self.args, 'hue_value', float(value))
+        #         elif key == "Color Threshold":
+        #             setattr(self.args, 'rt', float(value))
+        #         elif key == "Min Size":
+        #             setattr(self.args, 'min_size', int(value))
+        #         elif key == "Max Size":
+        #             setattr(self.args, 'max_size', int(value))
+        #         elif key == "Mode":
+        #             if value.lower() in ['both', 'twombli', 'segmentation']:
+        #                 setattr(self.args, 'mode', value.lower())
+        #             else:
+        #                 Log.logger.warning("Invalid mode parameter {}, set to default 'both'.".format(value))
+        #         else:
+        #             Log.logger.warning('Invalid parameter {}'.format(key))
+        Log.log_parameters(param_path)
 
     def remove_oversized_imgs(self):
         img_paths = get_img_paths(self.input_folder)
         path_batches, res_batches = split2batches(img_paths, self.batch_size)
 
-        twombli_param_path = join_path(self.program_folder, self.twombli_param_file)
-        max_line_width = -1
-        with open(twombli_param_path) as f:
-            lines = f.readlines()
-            for line in lines:
-                param_pair = line.rstrip().split(",")
-                key = param_pair[0]
-                value = param_pair[1]
-                if key == "Max Line Width":
-                    max_line_width = int(value)
-                    break
-
+        # twombli_param_path = join_path(self.program_folder, self.twombli_param_file)
+        max_line_width = self.args['Detection']["Max Line Width"]
+        # with open(twombli_param_path) as f:
+        #     lines = f.readlines()
+        #     for line in lines:
+        #         param_pair = line.rstrip().split(",")
+        #         key = param_pair[0]
+        #         value = param_pair[1]
+        #         if key == "Max Line Width":
+        #             max_line_width = int(value)
+        #             break
+        max_size = self.args["Segmentation"]["Max Size"]
         with open(join_path(self.eligible_dir, "Ignored_images.txt"), 'w') as f:
             count_black = 0
             count_oversized = 0
@@ -123,15 +144,15 @@ class Cabana:
                 if np.min([height, width]) < 2 * max_line_width or bright_percent <= 0.01:
                     count_black += 1
                     f.write(img_path + "\n")
-                elif height*width <= self.args.max_size**2 and bright_percent > 0.01:
+                elif height*width <= max_size**2 and bright_percent > 0.01:
                     cv2.imwrite(join_path(self.eligible_dir, os.path.splitext(img_name)[0] + ".png"), img)
-                elif height*width > self.args.max_size**2 and bright_percent > 0.01:
+                elif height*width > max_size and bright_percent > 0.01:
                     if self.ignore_oversized:
                         count_oversized += 1
                         f.write(img_path+"\n")
                     else:
-                        row_blk_sz = int(np.ceil(height / int(np.ceil(height / self.args.max_size))))
-                        col_blk_sz = int(np.ceil(width / int(np.ceil(width / self.args.max_size))))
+                        row_blk_sz = int(np.ceil(height / int(np.ceil(height / max_size))))
+                        col_blk_sz = int(np.ceil(width / int(np.ceil(width / max_size))))
                         count_oversized += 1
                         for i in range(0, height, row_blk_sz):
                             for j in range(0, width, col_blk_sz):
@@ -154,33 +175,34 @@ class Cabana:
 
         self.input_folder = self.eligible_dir
 
-        min_branch_len_px = 10
-        twombli_param_path = join_path(self.program_folder, self.twombli_param_file)
-        with open(twombli_param_path) as f:
-            lines = f.readlines()
-            for line in lines:
-                param_pair = line.rstrip().split(",")
-                key = param_pair[0]
-                value = param_pair[1]
-                if key == "Minimum Branch Length":
-                    min_branch_len_px = int(value)
-                    Log.logger.info("Minimum branch length has been set to {} px.".format(min_branch_len_px))
-                    break
+        # min_branch_len_px = 10
+        # twombli_param_path = join_path(self.program_folder, self.twombli_param_file)
+        # with open(twombli_param_path) as f:
+        #     lines = f.readlines()
+        #     for line in lines:
+        #         param_pair = line.rstrip().split(",")
+        #         key = param_pair[0]
+        #         value = param_pair[1]
+        #         if key == "Minimum Branch Length":
+        #             min_branch_len_px = int(value)
+        #             Log.logger.info("Minimum branch length has been set to {} px.".format(min_branch_len_px))
+        #             break
 
-        xml_file = join_path(self.program_folder, self.anamorf_param_file)
-        tree = ET.parse(xml_file)
-        root = tree.getroot()
-        root.find(".//entry[@key='Image Resolution (µm/pixel)']").text = str(res_batches[self.batch_idx])
-        root.find(".//entry[@key='Minimum Branch Length (µm)']").text = "{:.2f}".format(min_branch_len_px*res_batches[self.batch_idx])
-        root.find(".//entry[@key='Minimum Area (µm^2)']").text = "{:.3f}".format(min_branch_len_px * res_batches[self.batch_idx]*res_batches[self.batch_idx])
-        xml_bytes = ET.tostring(root, encoding="utf-8")
-        doctype_string = '<!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">\n'
-        xml_string = doctype_string.encode() + xml_bytes
+        # xml_file = join_path(self.program_folder, self.anamorf_param_file)
+        # tree = ET.parse(xml_file)
+        # root = tree.getroot()
+        # root.find(".//entry[@key='Image Resolution (µm/pixel)']").text = str(res_batches[self.batch_idx])
+        # root.find(".//entry[@key='Minimum Branch Length (µm)']").text = "{:.2f}".format(min_branch_len_px*res_batches[self.batch_idx])
+        # root.find(".//entry[@key='Minimum Area (µm^2)']").text = "{:.3f}".format(min_branch_len_px * res_batches[self.batch_idx]*res_batches[self.batch_idx])
+        # xml_bytes = ET.tostring(root, encoding="utf-8")
+        # doctype_string = '<!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">\n'
+        # xml_string = doctype_string.encode() + xml_bytes
+
+        # # Write the byte string to a new XML file
+        # with open(xml_file, "wb") as output_file:
+        #     output_file.write(xml_string)
+
         self.ims_res = res_batches[self.batch_idx]
-
-        # Write the byte string to a new XML file
-        with open(xml_file, "wb") as output_file:
-            output_file.write(xml_string)
 
         # tree.write(xml_file, encoding="utf-8", xml_declaration=True)
         Log.logger.info("Image resolution of Batch {} has been updated to {} microns/pixel".format(
@@ -191,43 +213,76 @@ class Cabana:
         img_paths.sort()
         Log.logger.info('Segmenting {} images in {}'.format(len(img_paths), self.input_folder))
         for img_path in img_paths:
-            setattr(self.args, 'input', img_path)
-            if not self.args.mode == "twombli":
-                segment_single_image(self.args)
+            setattr(self.seg_args, 'input', img_path)
+            if self.args["Initialization"]["Segmentation"]:
+                segment_single_image(self.seg_args)
             else:
                 Log.logger.info("No segmentation is applied prior to image analysis.")
-                img = cv2.imread(self.args.input)
+                img = cv2.imread(self.seg_args.input)
                 mask = np.ones((img.shape[0], img.shape[1]), dtype=np.uint8) * 255
                 img_name = os.path.splitext(os.path.basename(self.args.input))[0]
-                cv2.imwrite(join_path(self.args.roi_dir, img_name + '_roi.png'), img)
-                cv2.imwrite(join_path(self.args.bin_dir, img_name + '_mask.png'), mask)
+                cv2.imwrite(join_path(self.seg_args.roi_dir, img_name + '_roi.png'), img)
+                cv2.imwrite(join_path(self.seg_args.bin_dir, img_name + '_mask.png'), mask)
 
-        Log.logger.info('ROIs have been saved in {}'.format(self.args.roi_dir))
-        Log.logger.info('Masks have been saved in {}'.format(self.args.bin_dir))
+        Log.logger.info('ROIs have been saved in {}'.format(self.seg_args.roi_dir))
+        Log.logger.info('Masks have been saved in {}'.format(self.seg_args.bin_dir))
 
     def quantify_images(self):
-        # Image analysis with twombli
-        twombli_param_path = join_path(self.program_folder, self.twombli_param_file)
-        Log.log_parameters(twombli_param_path)
-
-        anamorf_param_path = join_path(self.program_folder, self.anamorf_param_file)
-
-        # check if Twombli_v*.ijm exists
-        tgt_file = join_path(self.program_folder, self.program_name)
-        src_file = join_path(os.path.dirname(os.path.dirname(os.path.realpath(__file__))),
-                             'TWOMBLI', 'Programs', self.program_name)
-        if (not os.path.exists(tgt_file)) and os.path.exists(src_file):
-            shutil.copyfile(src_file, tgt_file)
-            print(f'No {self.program_name} found in {self.program_folder}. {src_file} copied to {tgt_file}.')
+        # # Image analysis with twombli
+        # twombli_param_path = join_path(self.program_folder, self.twombli_param_file)
+        # Log.log_parameters(twombli_param_path)
+        #
+        # anamorf_param_path = join_path(self.program_folder, self.anamorf_param_file)
+        #
+        # # check if Twombli_v*.ijm exists
+        # tgt_file = join_path(self.program_folder, self.program_name)
+        # src_file = join_path(os.path.dirname(os.path.dirname(os.path.realpath(__file__))),
+        #                      'TWOMBLI', 'Programs', self.program_name)
+        # if (not os.path.exists(tgt_file)) and os.path.exists(src_file):
+        #     shutil.copyfile(src_file, tgt_file)
+        #     print(f'No {self.program_name} found in {self.program_folder}. {src_file} copied to {tgt_file}.')
 
         if len(glob(join_path(self.roi_dir, '*.png'))) > 0:
-            # No space after comma!!!
-            macro_args = "\"" + twombli_param_path + "," + self.roi_dir + "," + self.mask_dir + "," + \
-                         self.hdm_dir + "," + self.export_dir + "," + anamorf_param_path + "\""
-            full_macro = """runMacro(\"""" + join_path(self.program_folder, "") + \
-                         self.program_name + """\", """ + macro_args + """);"""
+            # HDM
+            quantify_black_space(self.eligible_dir, self.hdm_dir, ext=".png",
+                                 max_hdm=self.args["Quantification"]["Maximum Display HDM"],
+                                 dark_line=self.args["Detection"]["Dark Line"])
+            # Ridge detection
+            dark_line = self.args["Detection"]["Dark Line"]
+            extend_line = self.args["Detection"]["Extend Line"]
+            correct_pos = self.args["Detection"]["Correct Position"]
+            min_line_width = self.args["Detection"]["Min Line Width"]
+            max_line_width = self.args["Detection"]["Max Line Width"]
+            line_width_step = self.args["Detection"]["Line Width Step"]
+            line_widths = np.arange(min_line_width, max_line_width+line_width_step, line_width_step)
+            low_contrast = self.args["Detection"]["Low Contrast"]
+            high_contrast = self.args["Detection"]["High Contrast"]
+            min_len = self.args["Detection"]["Minimum Branch Length"]
+            det = MSRidgeDetector(line_widths=line_widths,
+                                  low_contrast=low_contrast,
+                                  high_contrast=high_contrast,
+                                  dark_line=dark_line,
+                                  extend_line=extend_line,
+                                  correct_pos=correct_pos,
+                                  min_len=min_len)
+            for img_path in glob(join_path(self.roi_dir, '*.png')):
+                det.detect_lines(img_path)
+                contour_img, width_img, binary_contours, binary_widths = det.get_results()
 
-            self.ij.py.run_macro(full_macro)
+                ori_img_name = os.path.basename(img_path)
+                name_wo_ext = ori_img_name[:ori_img_name.rindex('.')]
+                Path(join_path(self.export_dir, name_wo_ext)).mkdir(parents=True, exist_ok=True)
+                iio.imwrite(
+                    join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Mask.png"), binary_contours)
+                iio.imwrite(
+                    join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Width.png"), binary_widths)
+
+                Path(join_path(self.color_dir, name_wo_ext)).mkdir(parents=True, exist_ok=True)
+                iio.imwrite(
+                    join_path(self.color_dir, name_wo_ext, name_wo_ext+"_color_mask.png"), contour_img)
+                iio.imwrite(
+                    join_path(self.color_dir, name_wo_ext, name_wo_ext+"_color_width.png"), width_img)
+
             Log.logger.info('Image analyses finished.')
             Log.logger.info('Appending FIJI log...')
             return self.append_FIJI_log()
@@ -886,7 +941,7 @@ class Cabana:
         self.remove_oversized_imgs()
         self.generate_rois()
 
-        if self.args.mode != "segmentation":
+        if self.args["Initialization"]["Quantification"]:
             self.quantify_images()
             self.generate_visualizations()
             self.calc_fibre_areas()
