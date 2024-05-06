@@ -45,7 +45,8 @@ class Log:
             'CRITICAL': 'red',
         }
         self.formatter = colorlog.ColoredFormatter(
-            '%(log_color)s[%(asctime)s] [%(filename)s:%(lineno)d] [%(module)s:%(funcName)s] [%(levelname)s]- %(message)s',
+            '%(log_color)s[%(levelname)s]- %(message)s',
+            # '%(log_color)s[%(asctime)s] [%(filename)s:%(lineno)d] [%(module)s:%(funcName)s] [%(levelname)s]- %(message)s',
             log_colors=self.log_colors_config)
 
         if not os.path.exists(self.log_path):

@@ -8,7 +8,7 @@ import imageio.v3 as iio
 import scipy.ndimage as ndi
 from utils import add_colorbar
 from skimage.morphology import skeletonize, remove_small_holes
-from detector import MSRidgeDetector
+from detector import MSFibreDetector
 from scipy.interpolate import splprep, splev
 
 
@@ -812,7 +812,7 @@ class SkeletonAnalyzer:
 if __name__ == "__main__":
     t1 = time.time()
     img_path = "/Users/lxfhfut/Downloads/1681222495317.jpg"
-    det = MSRidgeDetector(line_widths=[11],
+    det = MSFibreDetector(line_widths=[11],
                           low_contrast=100,
                           high_contrast=200,
                           dark_line=False,

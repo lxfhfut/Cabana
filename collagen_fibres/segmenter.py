@@ -188,7 +188,7 @@ def segment_single_image(args):
         return np.sum(mask > 128), np.sum(mask > 128)/ori_width/ori_height
 
 
-def visualize_ridges(img, mask, result_path, thickness=3, border_color=[255, 255, 0]):
+def visualize_fibres(img, mask, result_path, thickness=3, border_color=[255, 255, 0]):
     mask_gray = cv2.bitwise_not(cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY))
     kernel = np.ones((thickness, thickness), np.uint8)
     dilated_mask = cv2.dilate(mask_gray, kernel)

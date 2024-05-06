@@ -11,7 +11,7 @@ from utils import (LinesUtil, Junction, Crossref, Line, convolve_gauss,
                    closest_point, normalize_to_half_circle)
 
 
-class MSRidgeDetector:
+class MSFibreDetector:
     def __init__(self,
                  line_widths=5,
                  low_contrast=100,

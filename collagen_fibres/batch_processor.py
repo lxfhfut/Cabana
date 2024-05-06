@@ -200,22 +200,14 @@ class BatchProcessor:
         merged_df = pd.DataFrame()
         for batch_idx in range(self.batch_num + 1):
             if os.path.exists(join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx),
-                                        'Masks', 'GapAnalysis', 'GapAnalysisSummaryCorrected.csv')):
+                                        'Masks', 'GapAnalysis', 'IntraGapAnalysisSummary.csv')):
                 df = pd.read_csv(join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx),
-                                           'Masks', 'GapAnalysis', 'GapAnalysisSummaryCorrected.csv'))
+                                           'Masks', 'GapAnalysis', 'IntraGapAnalysisSummary.csv'))
                 merged_df = pd.concat([merged_df, df], ignore_index=True)
 
         if len(merged_df) > 0:
             merged_df.to_csv(
-                join_path(self.output_folder, 'Masks', 'GapAnalysis', 'GapAnalysisSummaryCorrected.csv'), index=False)
-
-        # # merge Twombli_Results in output folder
-        # merged_df = pd.DataFrame()
-        # for batch_idx in range(self.batch_num + 1):
-        #     if os.path.exists(join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx), 'Twombli_Results.csv')):
-        #         df = pd.read_csv(join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx), 'Twombli_Results.csv'))
-        #         merged_df = pd.concat([merged_df, df], ignore_index=True)
-        # merged_df.to_csv(join_path(self.output_folder, 'Twombli_Results.csv'), index=False)
+                join_path(self.output_folder, 'Masks', 'GapAnalysis', 'IntraGapAnalysisSummary.csv'), index=False)
 
         # merge Quantification_Results in output folder
         merged_df = pd.DataFrame()
@@ -241,23 +233,10 @@ class BatchProcessor:
             shutil.rmtree(self.output_folder)
             os.mkdir(self.output_folder)
             max_res = self.args['Segmentation']["Max Size"]
-            # seg_param_path = join_path(self.program_folder, "SegmenterParameters.txt")
-            # with open(seg_param_path) as f:
-            #     lines = f.readlines()
-            #     for line in lines:
-            #         param_pair = line.rstrip().split(",")
-            #         key = param_pair[0]
-            #         value = param_pair[1]
-            #         if key == "Max Size":
-            #             max_res = int(value)
-            #             break
             if contains_oversized(img_paths, max_res):
                 answer = input(f"Oversized (> {max_res:d}x{max_res:d} pixels) "
                                f"images have been detected. Do you want to ignore them? ([y]/n): ")
-                if answer.lower() == "no" or answer.lower() == "n":
-                    self.ignore_oversized = False
-                else:
-                    self.ignore_oversized = True
+                self.ignore_oversized = False if answer.lower() == "no" or answer.lower() == "n" else True
 
             with open(join_path(self.output_folder, 'check_point.txt'), 'w') as ckpt:
                 ckpt.write('Input Folder,{}\n'.format(self.input_folder))
@@ -267,19 +246,13 @@ class BatchProcessor:
 
         # export version info before processing,
         # so that version info is available even if the subsequent analysis goes wrong
-        # fiji_dir = r'/Applications/Fiji.app'
         version_info_file = join_path(self.output_folder, 'version_params.yaml')
         with open(version_info_file, 'w') as file:
             try:
                 yaml.dump(self.args, file)
             except yaml.YAMLError as exc:
                 print(exc)
-        # export_version_info(version_info_file, fiji_install_dir=fiji_dir)
-        # export_parameters(join_path(self.program_folder, 'SegmenterParameters.txt'), version_info_file)
-        # export_parameters(join_path(self.program_folder, 'TwombliParameters.txt'), version_info_file)
 
-        # start processing
-        # ij = imagej.init(fiji_dir, mode='gui')
         start_batch_idx = self.batch_num+1 if self.resume else 0
         end_batch_idx = len(path_batches)  # int(np.ceil(len(img_paths) / self.batch_size))
         for batch_idx in range(start_batch_idx, end_batch_idx):

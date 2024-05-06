@@ -1,5 +1,6 @@
 import os
 from PIL import Image
+from tqdm import tqdm
 import csv
 import cv2
 import shutil
@@ -10,18 +11,17 @@ from log import Log
 import tifffile as tiff
 import yaml
 import imageio.v3 as iio
-from detector import MSRidgeDetector
+from detector import MSFibreDetector
 from analyzer import SkeletonAnalyzer
 from hdm import quantify_black_space
 from orientation import OrientationAnalyzer
-import xml.etree.ElementTree as ET
 
 from pathlib import Path
 from utils import split2batches, mask_color_map, orient_vf, info_color_map, sanitize_filename
 from utils import create_folder, join_path, sbs_color_map, sbs_color_survey, width_color_map, get_img_paths
 from skimage.feature import peak_local_max
 from sklearn.metrics.pairwise import euclidean_distances
-from segmenter import parse_args, segment_single_image, visualize_ridges
+from segmenter import parse_args, segment_single_image, visualize_fibres
 from skimage.color import rgb2hed, hed2rgb, rgb2gray
 
 
@@ -50,11 +50,11 @@ class Cabana:
         self.hdm_dir = join_path(self.output_folder, 'HDM', "")
         self.export_dir = join_path(self.output_folder, 'Exports', "")
         self.color_dir = join_path(self.output_folder, 'Colors', "")
-        self.ridge_dir = join_path(self.output_folder, 'Ridges', "")
+        self.fibre_dir = join_path(self.output_folder, 'Fibres', "")
         self.eligible_dir = join_path(self.output_folder, 'Eligible')
 
         create_folder(self.eligible_dir)
-        create_folder(self.ridge_dir)
+        create_folder(self.fibre_dir)
         create_folder(self.mask_dir)
         create_folder(self.hdm_dir)
         create_folder(self.export_dir)
@@ -144,13 +144,15 @@ class Cabana:
     def generate_rois(self):
         img_paths = get_img_paths(self.input_folder)
         img_paths.sort()
-        Log.logger.info('Segmenting {} images in {}'.format(len(img_paths), self.input_folder))
-        for img_path in img_paths:
-            setattr(self.seg_args, 'input', img_path)
-            if self.args["Initialization"]["Segmentation"]:
+        if self.args["Initialization"]["Segmentation"]:
+            Log.logger.info('Segmenting {} images in {}'.format(len(img_paths), self.input_folder))
+            for img_path in img_paths:
+                setattr(self.seg_args, 'input', img_path)
                 segment_single_image(self.seg_args)
-            else:
-                Log.logger.info("No segmentation is applied prior to image analysis.")
+        else:
+            Log.logger.info("No segmentation is applied prior to image analysis.")
+            for img_path in img_paths:
+                setattr(self.seg_args, 'input', img_path)
                 img = cv2.imread(self.seg_args.input)
                 mask = np.ones((img.shape[0], img.shape[1]), dtype=np.uint8) * 255
                 img_name = os.path.splitext(os.path.basename(self.seg_args.input))[0]
@@ -160,7 +162,7 @@ class Cabana:
         Log.logger.info('ROIs have been saved in {}'.format(self.seg_args.roi_dir))
         Log.logger.info('Masks have been saved in {}'.format(self.seg_args.bin_dir))
 
-    def detect_ridges(self):
+    def detect_fibres(self):
         dark_line = self.args["Detection"]["Dark Line"]
         extend_line = self.args["Detection"]["Extend Line"]
         correct_pos = self.args["Detection"]["Correct Position"]
@@ -171,14 +173,15 @@ class Cabana:
         low_contrast = self.args["Detection"]["Low Contrast"]
         high_contrast = self.args["Detection"]["High Contrast"]
         min_len = self.args["Detection"]["Minimum Branch Length"]
-        det = MSRidgeDetector(line_widths=line_widths,
+        Log.logger.info(f"Detecting fibres with line widths: {line_widths} pixels...")
+        det = MSFibreDetector(line_widths=line_widths,
                               low_contrast=low_contrast,
                               high_contrast=high_contrast,
                               dark_line=dark_line,
                               extend_line=extend_line,
                               correct_pos=correct_pos,
                               min_len=min_len)
-        for img_path in glob(join_path(self.roi_dir, '*.png')):
+        for img_path in tqdm(glob(join_path(self.roi_dir, '*.png'))):
             det.detect_lines(img_path)
             contour_img, width_img, binary_contours, binary_widths = det.get_results()
 
@@ -206,7 +209,8 @@ class Cabana:
         orient_analyzer = OrientationAnalyzer(2.0)
         alignments = []
         img_names = []
-        for img_path in glob(join_path(self.roi_dir, '*.png')):
+        Log.logger.info("Analyzing orientations...")
+        for img_path in tqdm(glob(join_path(self.roi_dir, '*.png'))):
             ori_img_name = os.path.basename(img_path)
             img_names.append(ori_img_name)
             name_wo_ext = ori_img_name[:ori_img_name.rindex('.')]
@@ -233,7 +237,7 @@ class Cabana:
                 self.color_dir, name_wo_ext, name_wo_ext + "_orient_vf.png"),
                 orient_analyzer.draw_vector_field(mask/255.0))
             iio.imwrite(join_path(
-                self.color_dir, name_wo_ext, name_wo_ext + "angular_hist.png"),
+                self.color_dir, name_wo_ext, name_wo_ext + "_angular_hist.png"),
                 orient_analyzer.draw_angular_hist(mask=mask))
 
         data = {'Image': img_names,
@@ -249,7 +253,7 @@ class Cabana:
         max_curve_win = self.args["Quantification"]["Maximum Curvature Window (um)"]
         curve_win_step = self.args["Quantification"]["Curvature Window Step (um)"]
 
-        # ridge detection returns ridges in black color, so dark_line is set to "True" for skeleton analysis
+        # fibre detection returns fibres in black color, so dark_line is set to "True" for skeleton analysis
         skel_analyzer = SkeletonAnalyzer(skel_thresh=min_skel_size,
                                          branch_thresh=min_branch_len,
                                          hole_threshold=min_hole_area,
@@ -259,8 +263,8 @@ class Cabana:
         curvatures = {}
         for win_sz in np.arange(min_curve_win, max_curve_win + curve_win_step, curve_win_step):
             curvatures[f"Curvature_{win_sz:.0f}"] = []
-
-        for img_path in glob(join_path(self.mask_dir, '*.png')):
+        Log.logger.info("Quantifying skeletons...")
+        for img_path in tqdm(glob(join_path(self.mask_dir, '*.png'))):
             skel_analyzer.reset()
             skel_analyzer.analyze_image(img_path)
             ori_img_name = os.path.basename(img_path)
@@ -310,13 +314,14 @@ class Cabana:
 
         if len(glob(join_path(self.roi_dir, '*.png'))) > 0:
             # HDM
+            Log.logger.info("Quantifying High Density Matrix (HDM) areas...")
             df_hdm = quantify_black_space(self.eligible_dir, self.hdm_dir, ext=".png",
                                           max_hdm=self.args["Quantification"]["Maximum Display HDM"],
                                           dark_line=self.args["Detection"]["Dark Line"])
             self.df_statistics = df_hdm
 
             # Ridge detection
-            self.detect_ridges()
+            self.detect_fibres()
 
             # Skeleton analysis
             self.quantify_skeletons()
@@ -324,33 +329,12 @@ class Cabana:
             # Orientation analysis
             self.analyze_orientations()
 
-            # # Save statistics
-            # self.df_statistics.to_csv(join_path(
-            #     self.output_folder, "Twombli_Results.csv"), index=False, float_format="%.3f")
-
             Log.logger.info('Image analyses finished.')
-            Log.logger.info('Appending FIJI log...')
-            # return self.append_FIJI_log()
         else:
             return {}
 
-    def append_FIJI_log(self):
-        with open(join_path(self.output_folder, 'FIJI_log.txt')) as f:
-            lines = f.readlines()
-            cnt = 0
-            for line in lines:
-                if line.startswith("Found object at"):
-                    cnt = 10
-                elif cnt >= 1:
-                    cnt -= 1
-                    continue
-                elif not line.rstrip():
-                    continue
-                else:
-                    Log.logger.info(line.rstrip())
-
-    def generate_visualizations(self, thickness=3):
-        Log.logger.info('Generating ridges visualization results...')
+    def visualize_fibres(self, thickness=3):
+        Log.logger.info('Generating fibre visualization results...')
         img_paths = get_img_paths(self.input_folder)
         img_paths.sort()
         for img_path in img_paths:
@@ -358,7 +342,7 @@ class Cabana:
             mask_path = join_path(self.mask_dir, os.path.splitext(img_name)[0] + '_roi.png')
             img = cv2.imread(img_path)
             mask = cv2.imread(mask_path)
-            visualize_ridges(img, mask, join_path(self.ridge_dir, os.path.splitext(img_name)[0] + '_ridges.png'), thickness)
+            visualize_fibres(img, mask, join_path(self.fibre_dir, os.path.splitext(img_name)[0] + '_fibres.png'), thickness)
 
     def calc_fibre_areas(self):
         img_paths = glob(join_path(self.bin_dir, '*.png'))
@@ -475,13 +459,14 @@ class Cabana:
                     img_name = os.path.basename(img_path)
                     cv2.imwrite(join_path(gap_result_dir, os.path.splitext(img_name)[0] + "_GapImage.png"), final_result)
                     areas = np.pi * (np.array(final_circles)[:, 2] ** 2) * self.ims_res**2
-                    summary_file.write("{} {:.2f} {:.2f} {:.2f} {:.2f} {:.2f} {:.0f}\n".format(img_name,
-                                                                                        np.mean(areas),
-                                                                                        np.std(areas),
-                                                                                        np.percentile(areas, 5),
-                                                                                        np.median(areas),
-                                                                                        np.percentile(areas, 95),
-                                                                                        areas.size))
+                    summary_file.write(
+                        "{} {:.2f} {:.2f} {:.2f} {:.2f} {:.2f} {:.0f}\n".format(img_name,
+                                                                                np.mean(areas),
+                                                                                np.std(areas),
+                                                                                np.percentile(areas, 5),
+                                                                                np.median(areas),
+                                                                                np.percentile(areas, 95),
+                                                                                areas.size))
                     final_circles = np.array(final_circles)
                     data = {'Area (microns^2)': areas,
                             'X': final_circles[:, 1],
@@ -490,18 +475,18 @@ class Cabana:
                     df = pd.DataFrame(data)
                     df.to_csv(join_path(gap_result_dir, "IndividualGaps_" + os.path.splitext(img_name)[0] + ".csv"), index=False)
 
-    def correct_gap_analysis(self):
+    def intra_gap_analysis(self):
         gap_result_dir = join_path(self.mask_dir, 'GapAnalysis')
         img_paths = glob(join_path(self.bin_dir, '*.png'))
         img_paths.sort()
 
         names, means, stds, means_radius, stds_radius, counts = [], [], [], [], [], []
-        Log.logger.info('Correcting gap analysis results for {} images'.format(len(img_paths)))
+        Log.logger.info('Performing intra gap analysis for {} images'.format(len(img_paths)))
         for img_path in img_paths:
             base_name = os.path.basename(img_path)[:-9]
             binary_mask = cv2.imread(img_path, 0)
-            img_ridge = cv2.imread(join_path(self.mask_dir, base_name + '_roi.png'), 0)
-            color_img_ridge = cv2.cvtColor(img_ridge, cv2.COLOR_GRAY2BGR)
+            img_fibre = cv2.imread(join_path(self.mask_dir, base_name + '_roi.png'), 0)
+            color_img_fibre = cv2.cvtColor(img_fibre, cv2.COLOR_GRAY2BGR)
             csv_file_path = join_path(gap_result_dir, 'IndividualGaps_' + base_name + '_roi.csv')
             if not os.path.exists(csv_file_path):
                 continue
@@ -513,14 +498,14 @@ class Cabana:
                 area, x, y = row['Area (microns^2)'], int(row['X']), int(row['Y'])
                 radius = int(np.sqrt(area / 3.1416) / self.ims_res)   # convert back to measurements in pixels
                 if binary_mask[y, x] > 0:
-                    color_img_ridge = cv2.circle(color_img_ridge, (x, y), radius, (0, 255, 0), 1)
+                    color_img_fibre = cv2.circle(color_img_fibre, (x, y), radius, (0, 255, 0), 1)
                     areas.append(area)
                     circle_cnt += 1
 
             areas = np.array(areas)
             radius = np.sqrt(areas / 3.1416)
             cv2.imwrite(join_path(gap_result_dir,
-                                  base_name + "_roi_GapImage_intra_gaps.png"), color_img_ridge)
+                                  base_name + "_roi_GapImage_intra_gaps.png"), color_img_fibre)
             names.append(base_name + "_roi.png")
             if len(areas) > 0:
                 means.append(np.mean(areas))
@@ -543,31 +528,26 @@ class Cabana:
                     'Std (ROI gap radius in microns)': stds_radius,
                     'Gaps number (ROI)': counts}
             df = pd.DataFrame(data)
-            df.to_csv(join_path(gap_result_dir, 'GapAnalysisSummaryCorrected.csv'), index=False)
+            df.to_csv(join_path(gap_result_dir, 'IntraGapAnalysisSummary.csv'), index=False)
+            Log.logger.info("Intra gap analysis done.")
         else:
-            Log.logger.warning('There seems no gap analysis to correct.')
+            Log.logger.warning('There seems no gap analysis.')
+
+        # Moving images to 'Export' folder
+        img_paths = glob(join_path(gap_result_dir, '*.png'))
+        for img_path in img_paths:
+            img_name = os.path.basename(img_path)
+            img_name = img_name[:img_name.index("_GapImage")]
+            shutil.copy(img_path, join_path(self.output_folder, "Exports", img_name))
 
     def combine_statistics(self):
-
         Log.logger.info('Generating statistics...')
-
-        # twombli_csv = join_path(self.output_folder, 'Twombli_Results.csv')
-        # if os.path.exists(twombli_csv):
-        #     df_twombli = pd.read_csv(twombli_csv)
-        # else:
-        #     Log.logger.warning(twombli_csv + " does not exist. Please check if TWOMBLI was run properly.")
-        #     return
 
         segmenter_csv = join_path(self.bin_dir, 'Results_ROI.csv')
         df_segmenter = pd.read_csv(segmenter_csv)
 
         # Check if image names are unique
-        # stats_img_names = self.df_statistics['Image'].values
         segmenter_img_names = df_segmenter['Image'].values
-
-        # if len(stats_img_names) != len(set(stats_img_names)):
-        #     Log.logger.critical('Images names are not unique in ' + twombli_csv)
-        #     return
 
         if len(segmenter_img_names) != len(set(segmenter_img_names)):
             Log.logger.critical('Images names are not unique in ' + segmenter_csv)
@@ -604,10 +584,10 @@ class Cabana:
         area_roi = [v*self.ims_res**2 for v in area_roi]
         area_width = [v*self.ims_res**2 for v in area_width]
         self.df_statistics = (
-            self.df_statistics.rename(columns={'Area (microns^2)': 'Projected Area of Ridge Spines (microns^2)'}))
+            self.df_statistics.rename(columns={'Area (microns^2)': 'Projected Area of Fibre Spines (microns^2)'}))
         self.df_statistics = self.df_statistics.rename(columns={'% High Density Matrix': '% HDM Area'})
         self.df_statistics.insert(
-            self.df_statistics.columns.get_loc("Projected Area of Ridge Spines (microns^2)") + 1,
+            self.df_statistics.columns.get_loc("Projected Area of Fibre Spines (microns^2)") + 1,
             "Fibre Area (ROI, microns^2)", area_roi)
         self.df_statistics.insert(
             self.df_statistics.columns.get_loc("Fibre Area (ROI, microns^2)") + 1,
@@ -634,7 +614,7 @@ class Cabana:
         self.df_statistics = self.df_statistics.rename(columns={'TotalImageArea': 'Total Image Area (microns^2)'})
         self.df_statistics['Total Image Area (microns^2)'] = self.df_statistics['Total Image Area (microns^2)'].mul(self.ims_res**2)
 
-        self.df_statistics.insert(self.df_statistics.columns.get_loc("Projected Area of Ridge Spines (microns^2)")+1, 'Fibre Area (HDM, microns^2)',
+        self.df_statistics.insert(self.df_statistics.columns.get_loc("Projected Area of Fibre Spines (microns^2)")+1, 'Fibre Area (HDM, microns^2)',
                           self.df_statistics['% HDM Area'] * self.df_statistics['Total Image Area (microns^2)'])
         total_area = self.df_statistics.loc[:, 'Total Image Area (microns^2)'].tolist()
         total_length = self.df_statistics.loc[:, 'Total Length (microns)'].tolist()
@@ -658,14 +638,18 @@ class Cabana:
             avg_thickness_width.append(a / l if l != 0 else 0)
 
         # Insert more metrics
-        self.df_statistics.insert(self.df_statistics.columns.get_loc("Total Length (microns)") + 1,
-                          "Avg Length (microns)", avg_length)
-        self.df_statistics.insert(self.df_statistics.columns.get_loc("Projected Area of Ridge Spines (microns^2)") + 1,
-                          "Avg Thickness (HDM, microns)", avg_thickness_hdm)
-        self.df_statistics.insert(self.df_statistics.columns.get_loc("Fibre Area (ROI, microns^2)") + 1,
-                          "Avg Thickness (ROI, microns)", avg_thickness_roi)
-        self.df_statistics.insert(self.df_statistics.columns.get_loc("Fibre Area (WIDTH, microns^2)") + 1,
-                          "Avg Thickness (WIDTH, microns)", avg_thickness_width)
+        self.df_statistics.insert(
+            self.df_statistics.columns.get_loc("Total Length (microns)") + 1,
+            "Avg Length (microns)", avg_length)
+        self.df_statistics.insert(
+            self.df_statistics.columns.get_loc("Projected Area of Fibre Spines (microns^2)") + 1,
+            "Avg Thickness (HDM, microns)", avg_thickness_hdm)
+        self.df_statistics.insert(
+            self.df_statistics.columns.get_loc("Fibre Area (ROI, microns^2)") + 1,
+            "Avg Thickness (ROI, microns)", avg_thickness_roi)
+        self.df_statistics.insert(
+            self.df_statistics.columns.get_loc("Fibre Area (WIDTH, microns^2)") + 1,
+            "Avg Thickness (WIDTH, microns)", avg_thickness_width)
 
         # re-order HDM columns
         move_column_inplace(self.df_statistics, 'Total Image Area (microns^2)', 1)  # move to the first column
@@ -698,7 +682,7 @@ class Cabana:
                             self.df_statistics.columns.get_loc("Avg Thickness (WIDTH, microns)") + 1)
 
         means, stds, means_radius, stds_radius, counts = [], [], [], [], []
-        gaps_csv = join_path(self.output_folder, 'Masks', 'GapAnalysis', 'GapAnalysisSummaryCorrected.csv')
+        gaps_csv = join_path(self.output_folder, 'Masks', 'GapAnalysis', 'IntraGapAnalysisSummary.csv')
 
         means_total, stds_total, means_radius_total, stds_radius_total, counts_total = [], [], [], [], []
         gap_summary_file = os.path.join(self.output_folder, 'Masks', 'GapAnalysis', 'GapAnalysisSummary.txt')
@@ -864,44 +848,6 @@ class Cabana:
         df_results.to_csv(final_csv, index=False, float_format='%.3f')
         Log.logger.info('Statistics have been normalised and saved to ' + final_csv)
 
-    def collect_info_maps(self):
-        # copy skeleton, curvature and length map to Exports folder
-        msk_sub_folders = [f.name for f in os.scandir(join_path(self.output_folder, 'Masks')) if f.is_dir()]
-        for msk_sub_folder in msk_sub_folders:
-            if msk_sub_folder.startswith("AnaMorf v"):
-                xml_file = join_path(self.output_folder, 'Masks', msk_sub_folder, "properties.xml")
-                tree = ET.parse(xml_file)
-                cur_wnd_sz = tree.getroot().find(".//entry[@key='Curvature Window']").text
-                img_paths = glob(join_path(self.output_folder, 'Masks', msk_sub_folder, '*.png')) + \
-                            glob(join_path(self.output_folder, 'Masks', msk_sub_folder, '*.tif'))
-                for img_path in img_paths:
-                    basename = os.path.basename(img_path)
-                    if img_path.endswith("Curve_Map.tif"):
-                        shutil.copy(img_path, join_path(self.output_folder,
-                                                        "Exports", basename[:-4] +
-                                                        "_{:.0f}".format(float(cur_wnd_sz)) + ".tif"))
-                    else:
-                        shutil.copy(img_path, join_path(self.output_folder, "Exports"))
-            elif msk_sub_folder.startswith("GapAnalysis"):
-                img_paths = glob(join_path(self.output_folder, 'Masks', msk_sub_folder, '*.png'))
-                for img_path in img_paths:
-                    shutil.copy(img_path, join_path(self.output_folder, "Exports"))
-
-        # organize images into individual folders
-        export_img_paths = glob(join_path(self.output_folder, "Exports", "*.png")) + \
-                           glob(join_path(self.output_folder, "Exports", "*.tif*"))
-        ori_img_paths = glob(join_path(self.output_folder, "ROIs", "*.png"))
-
-        for ori_img_path in ori_img_paths:
-            ori_img_name = os.path.basename(ori_img_path)
-            name_wo_ext = ori_img_name[:ori_img_name.rindex('.')]
-
-            Path(join_path(self.export_dir, name_wo_ext)).mkdir(parents=True, exist_ok=True)
-            for export_img_path in export_img_paths:
-                if name_wo_ext in os.path.basename(export_img_path):
-                    Path.rename(Path(export_img_path),
-                                Path(join_path(self.export_dir, name_wo_ext, os.path.basename(export_img_path))))
-
     def generate_color_maps(self):
         ori_img_paths = get_img_paths(join_path(self.output_folder, "Eligible"))
 
@@ -937,10 +883,14 @@ class Cabana:
             energy_map[bg_index_pos[0], bg_index_pos[1]] = 0
             cohere_map[bg_index_pos[0], bg_index_pos[1]] = 0
             orient_map[bg_index_pos[0], bg_index_pos[1]] = 0
-            sbs_color_map(rgb_img, orient_map, join_path(self.color_dir, name_wo_ext,
-                                                         name_wo_ext + "_color_orientation.png"), cbar_label="Orientation")
-            sbs_color_map(rgb_img, cohere_map, join_path(self.color_dir, name_wo_ext,
-                                                         name_wo_ext + "_color_coherency.png"), cbar_label="Coherency")
+            sbs_color_map(
+                rgb_img, orient_map,
+                join_path(self.color_dir, name_wo_ext,
+                          name_wo_ext + "_color_orientation.png"), cbar_label="Orientation")
+            sbs_color_map(
+                rgb_img, cohere_map,
+                join_path(self.color_dir, name_wo_ext,
+                          name_wo_ext + "_color_coherency.png"), cbar_label="Coherency")
 
             vector_field = orient_vf(rgb_img, orient_map, cohere_map)
             Image.fromarray(vector_field).save(
@@ -995,14 +945,12 @@ class Cabana:
 
         if self.args["Initialization"]["Quantification"]:
             self.quantify_images()
-            self.generate_visualizations()
+            self.visualize_fibres()
             self.calc_fibre_areas()
             self.gap_analysis()
-            self.correct_gap_analysis()
+            self.intra_gap_analysis()
             self.combine_statistics()
             self.normalize_statistics()
-            # self.collect_info_maps()
             self.generate_color_maps()
         else:
             Log.logger.info('Segmentation is done. No further analysis will be conducted.')
-            # os._exit(0)
