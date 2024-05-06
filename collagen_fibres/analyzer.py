@@ -1,39 +1,68 @@
 import cv2
 import time
 import numpy as np
-import seaborn as sns
-from utils import normalize
+from log import Log
 import networkx as nx
 from numba import jit
 import imageio.v3 as iio
 import scipy.ndimage as ndi
-import matplotlib.pyplot as plt
 from utils import add_colorbar
 from skimage.morphology import skeletonize, remove_small_holes
 from detector import MSRidgeDetector
+from scipy.interpolate import splprep, splev
 
 
 class SkeletonAnalyzer:
-    def __init__(self, skel_thresh=20, branch_thresh=10, hole_threshold=8):
+    def __init__(self, skel_thresh=20, branch_thresh=10, hole_threshold=8, dark_line=True):
         self.pts_image = None
         self.skel_thresh = skel_thresh
         self.branch_thresh = branch_thresh
         self.hole_thresh = hole_threshold
+        self.proj_area = 0.0
         self.num_tips = 0
         self.num_branches = 0
-        self.end_points = []
-        self.branch_points = []
+        self.total_length = 0.0
+        self.growth_unit = 0.0
+        self.frac_dim = 0.0
+        self.lacunarity = 0.0
+        self.avg_curve_long = 0.0
+        self.avg_curve_all = 0.0
+        self.avg_curve_spline = 0.0
         self.raw_image = None
         self.skel_image = None
         self.pruned_image = None
         self.key_pts_image = None
         self.long_path_image = None
-        self.curve_map_longest = None
+        self.curve_map_long = None
         self.curve_map_all = None
-        self.length_map = None
+        self.length_map_long = None
+        self.length_map_all = None
         self.subgraphs = []
+        self.dark_line = dark_line
         self.FOREGROUND = 255
         self.BACKGROUND = 0
+
+    def reset(self):
+        self.proj_area = 0.0
+        self.num_tips = 0
+        self.num_branches = 0
+        self.total_length = 0.0
+        self.growth_unit = 0.0
+        self.frac_dim = 0.0
+        self.lacunarity = 0.0
+        self.avg_curve_long = 0.0
+        self.avg_curve_all = 0.0
+        self.avg_curve_spline = 0.0
+        self.raw_image = None
+        self.skel_image = None
+        self.pruned_image = None
+        self.key_pts_image = None
+        self.long_path_image = None
+        self.curve_map_long = None
+        self.curve_map_all = None
+        self.length_map_long = None
+        self.length_map_all = None
+        self.subgraphs = []
 
     @staticmethod
     @jit(nopython=True)
@@ -55,10 +84,10 @@ class SkeletonAnalyzer:
             return lengths_paths
         elif end_points and not brh_points:  # only end points available
             if len(end_points) == 1:
-                print("Isolated point found. Ignored!")
+                Log.logger.warning("Isolated point found. Ignored!")
                 return lengths_paths
             elif len(end_points) > 2:
-                print("More than 2 points found. Ignored!")
+                Log.logger.warning("More than 2 points for a branch. Ignored!")
                 return lengths_paths
             else:
                 stack = [(end_points[0], 0, [end_points[0]])]
@@ -428,7 +457,7 @@ class SkeletonAnalyzer:
             for node in isolated_nodes:
                 self.pruned_image[node[0], node[1]] = self.BACKGROUND
 
-    def calc_curvature_all(self, win_sz=11):
+    def calc_curve_all(self, win_sz=11):
         curve_map = np.zeros_like(self.pruned_image, dtype=float)
         count_map = np.zeros_like(self.pruned_image, dtype=int)
         side = win_sz // 2
@@ -449,12 +478,14 @@ class SkeletonAnalyzer:
                         count_map[points[j, 0], points[j, 1]] += 1
         calc_mask = count_map >= 1
         curve_map[calc_mask] /= count_map[calc_mask]
-        print(f"Mean curvature (win_sz={win_sz}): {np.mean(curve_map[calc_mask])}")
-        self.curve_map_all = add_colorbar(curve_map, clabel="Curvature (degrees)", cmap="inferno")
+        self.curve_map_all = curve_map
+        self.avg_curve_all = np.mean(curve_map[calc_mask])
+        # print(f"Mean curvature (win_sz={win_sz}): {np.mean(curve_map[calc_mask])}")
+        # self.curve_map_all = add_colorbar(curve_map, clabel="Curvature (degrees)", cmap="inferno")
 
-    def calc_curvature_longest(self, win_sz=11):
-        height, width = self.pruned_image.shape[:2]
-        curve_map = np.zeros_like(self.pruned_image, dtype=float)
+    def calc_curve_long(self, win_sz=11):
+        # height, width = self.pruned_image.shape[:2]
+        self.curve_map_long = np.zeros_like(self.pruned_image, dtype=float)
         side = win_sz // 2
         curvatures = []
         for G in self.subgraphs:
@@ -487,17 +518,9 @@ class SkeletonAnalyzer:
                     angle_diff = abs(theta1 - theta2)
                     if angle_diff >= np.pi:
                         angle_diff = 2 * np.pi - angle_diff
-                    curve_map[points[j, 0], points[j, 1]] = np.rad2deg(angle_diff)
+                    self.curve_map_long[points[j, 0], points[j, 1]] = np.rad2deg(angle_diff)
                     curvatures.append(np.rad2deg(angle_diff))
-        print(f"Mean curvature (win_sz={win_sz}): {np.mean(curvatures)}")
-
-        # curve_map /= 180.0
-        # colormap = matplotlib.colormaps.get_cmap('inferno')
-        # colored_img = colormap(curve_map)[:, :, :3]
-        # hsv_img = cv2.cvtColor((colored_img * 255).astype(np.uint8), cv2.COLOR_RGB2HSV)
-        # hsv_img[:, :, 2] = (normalize(hsv_img[..., 2], 2, 98) * 255).astype(np.uint8)
-        # colored_img = cv2.cvtColor(hsv_img, cv2.COLOR_HSV2RGB) / 255.0
-        self.curve_map_longest = add_colorbar(curve_map, clabel="Curvature (degrees)", cmap="inferno")
+        self.avg_curve_long = np.mean(curvatures)
 
     def points_test(self):
         def get_binary_3x3(img, row, col):
@@ -572,7 +595,7 @@ class SkeletonAnalyzer:
         print(f"points_test: {end_pts_cnt} end points, {brh_pts_cnt} branch points.")
 
     def draw_key_points(self):
-        height, width = self.pruned_image.shape[:2]
+        # height, width = self.pruned_image.shape[:2]
         self.key_pts_image = np.repeat(self.pruned_image[:, :, None], 3, axis=2)
         brh_pts_cnt = 0
         end_pts_cnt = 0
@@ -586,10 +609,29 @@ class SkeletonAnalyzer:
                     brh_pts_cnt += 1
                 else:
                     pass
-        print(f"draw_key_points: {end_pts_cnt} end points, {brh_pts_cnt} branch points.")
+        self.num_tips = end_pts_cnt
+        self.num_branches = brh_pts_cnt
+        # print(f"draw_key_points: {end_pts_cnt} end points, {brh_pts_cnt} branch points.")
 
-    def calc_length_map(self):
-        length_map = np.zeros_like(self.pruned_image, dtype=float)
+    def calc_total_len(self):
+        self.total_length = np.sum(self.pruned_image == self.FOREGROUND)
+
+    def calc_growth_unit(self):
+        self.growth_unit = 2.0 * self.total_length / (self.num_tips + self.num_branches)
+
+    def calc_len_map_all(self):
+        self.length_map_all = np.zeros_like(self.pruned_image, dtype=float)
+        for G in self.subgraphs:
+            for u, v, a in G.edges(data=True):
+                edge_path = a['path']
+                if len(edge_path) > 0:
+                    points = np.asarray(edge_path)
+                    traj_len = np.sum(
+                        np.sqrt((points[1:, 0] - points[:-1, 0]) ** 2 + (points[1:, 1] - points[:-1, 1]) ** 2))
+                    self.length_map_all[points[:, 0], points[:, 1]] = traj_len
+
+    def calc_len_map_long(self):
+        self.length_map_long = np.zeros_like(self.pruned_image, dtype=float)
         for G in self.subgraphs:
             longest_path = SkeletonAnalyzer.longest_path(G, "length")[0]
             trajectory = []
@@ -605,7 +647,6 @@ class SkeletonAnalyzer:
                         elif trajectory[-1] == edge_path[-1]:
                             trajectory.extend(edge_path[::-1][1:])
                         else:
-                            # there seems a problem for some branches 头尾不衔接的情况
                             pass
 
                     src_node = dst_node
@@ -613,16 +654,7 @@ class SkeletonAnalyzer:
             if trajectory:
                 points = np.asarray(trajectory)
                 traj_len = np.sum(np.sqrt((points[1:, 0] - points[:-1, 0]) ** 2 + (points[1:, 1] - points[:-1, 1]) ** 2))
-                length_map[points[:, 0], points[:, 1]] = traj_len
-
-        # length_map /= np.max(length_map)
-        # colormap = matplotlib.colormaps.get_cmap('inferno')
-        # colored_img = colormap(length)[:, :, :3]
-        # hsv_img = cv2.cvtColor((colored_img * 255).astype(np.uint8), cv2.COLOR_RGB2HSV)
-        # hsv_img[:, :, 2] = (normalize(hsv_img[..., 2], 2, 98) * 255).astype(np.uint8)
-        # colored_img = cv2.cvtColor(hsv_img, cv2.COLOR_HSV2RGB) / 255.0
-
-        self.length_map = add_colorbar(length_map, clabel="Length", cmap="inferno")
+                self.length_map_long[points[:, 0], points[:, 1]] = traj_len
 
     def draw_longest_path(self):
         self.long_path_image = np.repeat(self.pruned_image[:, :, None], 3, axis=2)
@@ -663,18 +695,45 @@ class SkeletonAnalyzer:
 
         # Check if all counts are zero
         if np.all(counts == 0):
-            print("All counts are zero. Fractal dimension cannot be computed meaningfully.")
+            Log.logger.warning("All counts are zero. Fractal dimension cannot be computed meaningfully.")
             return None
         else:
             # Replace zero counts with a small positive number
             counts = np.maximum(counts, 1e-10)
-        return -np.polyfit(np.log(sizes), np.log(counts), 1)[0]
+        self.frac_dim = -np.polyfit(np.log(sizes), np.log(counts), 1)[0]
 
     def calc_lacunarity(self):
         mask_img = np.zeros_like(self.pruned_image)
         mask_img[self.pruned_image == self.FOREGROUND] = 1
-        lac = abs(np.var(mask_img.flatten()) / np.mean(mask_img.flatten()) ** 2 - 1.0)
-        return lac
+        self.lacunarity = abs(np.var(mask_img.flatten()) / np.mean(mask_img.flatten()) ** 2 - 1.0)
+
+    def calc_curve_spline(self, s=3):
+        curve_map = np.zeros_like(self.pruned_image, dtype=float)
+        count_map = np.zeros_like(self.pruned_image, dtype=int)
+        for G in self.subgraphs:
+            for u, v, a in G.edges(data=True):
+                edge_path = a['path']
+                if len(edge_path) > 3:  # At least three points are needed for spline fitting
+                    contour = np.asarray(edge_path)
+
+                    tck, u = splprep(contour.T, s=s)
+
+                    # Evaluate the spline to get points on the curve
+                    points = np.asarray(splev(u, tck)).round().astype(int).T
+
+                    # calculate the curvature of points
+                    dx, dy = splev(u, tck, der=1)
+                    ddx, ddy = splev(u, tck, der=2)
+
+                    # Calculate curvature at each point
+                    curvature = (np.abs(dx * ddy - dy * ddx) /
+                                 ((dx ** 2 + dy ** 2 + np.finfo(float).eps) ** 1.5))
+
+                    curve_map[points[:, 0], points[:, 1]] = curvature
+                    count_map[points[:, 0], points[:, 1]] += 1
+        calc_mask = count_map >= 1
+        curve_map[calc_mask] /= count_map[calc_mask]
+        self.avg_curve_spline = np.mean(curve_map[calc_mask])
 
     @staticmethod
     def dilate_color(color_image, mask):
@@ -703,84 +762,51 @@ class SkeletonAnalyzer:
 
         return output_image
 
+    def calc_proj_area(self):
+        self.proj_area = np.sum(self.raw_image == self.FOREGROUND)
+
     def analyze_image(self, image):
         self.raw_image = iio.imread(image) if isinstance(image, str) else image
         if self.raw_image.ndim > 2:
             self.raw_image = self.raw_image[..., 0]
 
         if len(np.unique(self.raw_image.flatten())) > 2:
-            print("Image to be analyzed has to be binary.")
+            Log.logger.warning("Image to be analyzed has to be binary.")
             return
 
-        self.FOREGROUND, self.BACKGROUND = self.raw_image.max(), self.raw_image.min()
-        if (np.count_nonzero(self.raw_image == self.FOREGROUND) >
-                np.count_nonzero(self.raw_image == self.BACKGROUND)):
-            self.raw_image = self.FOREGROUND - self.raw_image
+        if self.dark_line:
+            self.raw_image = 255 - self.raw_image
+            self.FOREGROUND = self.raw_image.max()
+            self.BACKGROUND = self.raw_image.min()
 
         # Skeletonize
-        t1 = time.time()
-        skeletonized = skeletonize(remove_small_holes(self.raw_image == self.FOREGROUND, self.hole_thresh))
-        self.skel_image = (skeletonized * self.FOREGROUND).astype(np.uint8)
+        skeleton = skeletonize(remove_small_holes(self.raw_image == self.FOREGROUND, self.hole_thresh))
+        self.skel_image = (skeleton * self.FOREGROUND).astype(np.uint8)
         self.construct_graphs()
         self.draw_key_points()
-        # t1 = time.time()
-        # self.points_test()
-        # print(time.time() - t1)
-        self.draw_longest_path()
-        self.calc_curvature_longest(win_sz=21)
-        self.calc_length_map()
-        # curve_map = self.calc_curvature_all(win_sz=21) / 180.0
-        print(f"Fractal Dimension: {self.calc_frac_dim()}, Lacunarity: {self.calc_lacunarity()}")
-        print(f"Total length: {np.count_nonzero(self.pruned_image==self.FOREGROUND)} pixels.")
-        # print(f"Quantification: {time.time() - t1} seconds.")
-        # colormap = matplotlib.colormaps.get_cmap('inferno')
-        # colored_img = colormap(curve_map)[:, :, :3]
-        # hsv_img = cv2.cvtColor((colored_img*255).astype(np.uint8), cv2.COLOR_RGB2HSV)
-        # hsv_img[:, :, 2] = (normalize(hsv_img[..., 2], 2, 98) * 255).astype(np.uint8)
-        # colored_img = cv2.cvtColor(hsv_img, cv2.COLOR_HSV2RGB) / 255.0
-        #
-        # fig1 = plt.figure(figsize=(12, 12))
-        # img_tmp = plt.imshow(colored_img, cmap="inferno")
-        # plt.gca().set_visible(False)
-        # # row_idx, col_idx = np.argwhere(self.pruned_image == self.BACKGROUND).T
-        # # colored_img[row_idx, col_idx, :] = [0, 0, 0]
-        # colored_img = (colored_img * 255).astype(np.uint8)
+        self.calc_len_map_long()
+        self.calc_len_map_all()
+        self.calc_total_len()
+        self.calc_proj_area()
+        self.calc_growth_unit()
+        self.calc_frac_dim()
+        self.calc_lacunarity()
 
-        # Dilate the color image for visualization
-        # new_colored_img = SkeletonAnalyzer.dilate_color(colored_img, self.pruned_image)
-
-        # print(time.time() - t1)
-
-        # n_colors = 180
-        # hues = np.asarray(sns.color_palette('viridis', n_colors + 1))
-        # hue_indices = (n_colors * curve_map / 180.0).astype(int)
-        # curvature_color = np.take(hues, hue_indices, axis=0)
-
-        fig, axes = plt.subplots(3, 2, figsize=(16, 16))
-        axes[0, 0].imshow(self.raw_image, cmap='gray')
-        axes[0, 0].set_title("Ridges")
-        axes[0, 1].imshow(self.skel_image, cmap='gray')
-        axes[0, 1].set_title("Skeletonized")
-        axes[1, 0].imshow(self.pruned_image, cmap='gray')
-        axes[1, 0].set_title("Pruned")
-        axes[1, 1].imshow(self.key_pts_image)
-        axes[1, 1].set_title("Key Points")
-        axes[2, 0].imshow(self.length_map)
-        axes[2, 0].set_title("Longest Paths")
-        axes[2, 0].axis('off')
-        axes[2, 1].imshow(self.curve_map_longest)
-        axes[2, 1].axis('off')
-        # divider = make_axes_locatable(axes[2, 1])
-        # # Append axes to the right of ax, with 5% width of ax, and padding between them
-        # cax = divider.append_axes("right", size="5%", pad=0.1)
-        # cax.tick_params(labelsize=12)
-        # cbar = plt.colorbar(img_tmp, cax=cax)
-        # cbar.ax.set_ylabel('Curvature (degrees)', fontsize=12)
-        # ticklabels = [int(t*180) for t in cbar.get_ticks()]
-        # cbar.set_ticks(cbar.get_ticks())
-        # cbar.set_ticklabels(ticklabels)
-        # plt.close(fig1)
-        plt.show()
+        # fig, axes = plt.subplots(3, 2, figsize=(16, 16))
+        # axes[0, 0].imshow(self.raw_image, cmap='gray')
+        # axes[0, 0].set_title("Ridges")
+        # axes[0, 1].imshow(self.skel_image, cmap='gray')
+        # axes[0, 1].set_title("Skeletonized")
+        # axes[1, 0].imshow(self.pruned_image, cmap='gray')
+        # axes[1, 0].set_title("Pruned")
+        # axes[1, 1].imshow(self.key_pts_image)
+        # axes[1, 1].set_title("Key Points")
+        # axes[2, 0].imshow(self.length_map)
+        # axes[2, 0].set_title("Longest Paths")
+        # axes[2, 0].axis('off')
+        # axes[2, 1].imshow(self.curve_map_longest)
+        # axes[2, 1].axis('off')
+        # plt.show()
 
 
 if __name__ == "__main__":

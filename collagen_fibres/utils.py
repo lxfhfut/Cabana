@@ -18,7 +18,7 @@ from correct import Correct
 # matplotlib.use('Agg', force=True)
 from PIL import Image, ExifTags
 from matplotlib.figure import Figure
-from scipy.ndimage import convolve
+from scipy.ndimage import convolve, gaussian_filter1d
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from scipy.stats import multivariate_normal
@@ -1301,8 +1301,8 @@ def fix_locations(cont, width_l, width_r, grad_l, grad_r, pos_y, pos_x, sigma_ma
             pos_y[i], pos_x[i] = py, px
 
     # Update position of line and add extracted width
-    # width_l = gaussian_filter1d(width_l, 3.0, mode='mirror')
-    # width_r = gaussian_filter1d(width_r, 3.0, mode='mirror')
+    width_l = gaussian_filter1d(width_l, 3.0, mode='mirror')
+    width_r = gaussian_filter1d(width_r, 3.0, mode='mirror')
     cont.width_l = np.array([float(w) for w in width_l])
     cont.width_r = np.array([float(w) for w in width_r])
     cont.row = np.array([float(y) for y in pos_y])

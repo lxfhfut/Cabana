@@ -1,7 +1,7 @@
 import os
 import time
 import shutil
-import imagej
+import yaml
 import pandas as pd
 from glob import glob
 from version_info import export_version_info
@@ -18,7 +18,7 @@ from tkinter import filedialog
 import torch
 
 
-class Batch_Processor:
+class BatchProcessor:
     def __init__(self, batch_size=5):
         self.batch_size = batch_size
         self.batch_num = -1
@@ -48,6 +48,14 @@ class Batch_Processor:
 
         print(self.output_folder + " has been selected.")
         gui.destroy()
+
+        self.args = None
+        param_path = join_path(self.program_folder, "Parameters.yml")
+        with open(param_path) as pf:
+            try:
+                self.args = yaml.safe_load(pf)
+            except yaml.YAMLError as exc:
+                print(exc)
 
     def check_running_status(self):
         if os.path.exists(join_path(self.output_folder, 'check_point.txt')):
@@ -201,23 +209,23 @@ class Batch_Processor:
             merged_df.to_csv(
                 join_path(self.output_folder, 'Masks', 'GapAnalysis', 'GapAnalysisSummaryCorrected.csv'), index=False)
 
-        # merge Twombli_Results in output folder
-        merged_df = pd.DataFrame()
-        for batch_idx in range(self.batch_num + 1):
-            if os.path.exists(join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx), 'Twombli_Results.csv')):
-                df = pd.read_csv(join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx), 'Twombli_Results.csv'))
-                merged_df = pd.concat([merged_df, df], ignore_index=True)
-        merged_df.to_csv(join_path(self.output_folder, 'Twombli_Results.csv'), index=False)
+        # # merge Twombli_Results in output folder
+        # merged_df = pd.DataFrame()
+        # for batch_idx in range(self.batch_num + 1):
+        #     if os.path.exists(join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx), 'Twombli_Results.csv')):
+        #         df = pd.read_csv(join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx), 'Twombli_Results.csv'))
+        #         merged_df = pd.concat([merged_df, df], ignore_index=True)
+        # merged_df.to_csv(join_path(self.output_folder, 'Twombli_Results.csv'), index=False)
 
-        # merge Twombli_Results_Final in output folder
+        # merge Quantification_Results in output folder
         merged_df = pd.DataFrame()
         for batch_idx in range(self.batch_num + 1):
             if os.path.exists(join_path(self.output_folder,
-                                        'Batches', "batch_" + str(batch_idx), 'Twombli_Results_Final.csv')):
+                                        'Batches', "batch_" + str(batch_idx), 'Quantification_Results.csv')):
                 df = pd.read_csv(join_path(self.output_folder,
-                                           'Batches', "batch_" + str(batch_idx), 'Twombli_Results_Final.csv'))
+                                           'Batches', "batch_" + str(batch_idx), 'Quantification_Results.csv'))
                 merged_df = pd.concat([merged_df, df], ignore_index=True)
-        merged_df.to_csv(join_path(self.output_folder, 'Twombli_Results_Final.csv'), index=False)
+        merged_df.to_csv(join_path(self.output_folder, 'Quantification_Results.csv'), index=False)
 
         if os.path.exists(join_path(self.output_folder, 'check_point.txt')):
             os.remove(join_path(self.output_folder, 'check_point.txt'))
@@ -232,19 +240,20 @@ class Batch_Processor:
         if not self.resume:
             shutil.rmtree(self.output_folder)
             os.mkdir(self.output_folder)
-            max_res = 0
-            seg_param_path = join_path(self.program_folder, "SegmenterParameters.txt")
-            with open(seg_param_path) as f:
-                lines = f.readlines()
-                for line in lines:
-                    param_pair = line.rstrip().split(",")
-                    key = param_pair[0]
-                    value = param_pair[1]
-                    if key == "Max Size":
-                        max_res = int(value)
-                        break
+            max_res = self.args['Segmentation']["Max Size"]
+            # seg_param_path = join_path(self.program_folder, "SegmenterParameters.txt")
+            # with open(seg_param_path) as f:
+            #     lines = f.readlines()
+            #     for line in lines:
+            #         param_pair = line.rstrip().split(",")
+            #         key = param_pair[0]
+            #         value = param_pair[1]
+            #         if key == "Max Size":
+            #             max_res = int(value)
+            #             break
             if contains_oversized(img_paths, max_res):
-                answer = input("Oversized (> {:d}x{:d} pixels) images have been detected. Do you want to ignore them? ([y]/n): ".format(max_res, max_res))
+                answer = input(f"Oversized (> {max_res:d}x{max_res:d} pixels) "
+                               f"images have been detected. Do you want to ignore them? ([y]/n): ")
                 if answer.lower() == "no" or answer.lower() == "n":
                     self.ignore_oversized = False
                 else:
@@ -258,14 +267,19 @@ class Batch_Processor:
 
         # export version info before processing,
         # so that version info is available even if the subsequent analysis goes wrong
-        fiji_dir = r'C:\Program Files\fiji-win64\Fiji.app'
-        version_info_file = join_path(self.output_folder, 'version_params.txt')
-        export_version_info(version_info_file, fiji_install_dir=fiji_dir)
-        export_parameters(join_path(self.program_folder, 'SegmenterParameters.txt'), version_info_file)
-        export_parameters(join_path(self.program_folder, 'TwombliParameters.txt'), version_info_file)
+        # fiji_dir = r'/Applications/Fiji.app'
+        version_info_file = join_path(self.output_folder, 'version_params.yaml')
+        with open(version_info_file, 'w') as file:
+            try:
+                yaml.dump(self.args, file)
+            except yaml.YAMLError as exc:
+                print(exc)
+        # export_version_info(version_info_file, fiji_install_dir=fiji_dir)
+        # export_parameters(join_path(self.program_folder, 'SegmenterParameters.txt'), version_info_file)
+        # export_parameters(join_path(self.program_folder, 'TwombliParameters.txt'), version_info_file)
 
         # start processing
-        ij = imagej.init(fiji_dir, mode='interactive')
+        # ij = imagej.init(fiji_dir, mode='gui')
         start_batch_idx = self.batch_num+1 if self.resume else 0
         end_batch_idx = len(path_batches)  # int(np.ceil(len(img_paths) / self.batch_size))
         for batch_idx in range(start_batch_idx, end_batch_idx):
@@ -276,7 +290,7 @@ class Batch_Processor:
             self.batch_num = batch_idx
             batch_folder = join_path(self.output_folder, 'Batches', 'batch_' + str(batch_idx))
             Path(batch_folder).mkdir(parents=True, exist_ok=True)
-            batch_cabana = Cabana(ij, self.program_folder, self.input_folder,
+            batch_cabana = Cabana(self.program_folder, self.input_folder,
                                   batch_folder, self.batch_size, batch_idx, self.ignore_oversized)
             batch_cabana.run()
             with open(join_path(self.output_folder, 'check_point.txt'), 'r') as ckpt:
@@ -293,7 +307,7 @@ class Batch_Processor:
 
 if __name__ == "__main__":
     start_time = time.time()
-    batch_processor = Batch_Processor(5)
+    batch_processor = BatchProcessor(5)
     batch_processor.run()
     time_secs = time.time() - start_time
     hours = time_secs // 3600

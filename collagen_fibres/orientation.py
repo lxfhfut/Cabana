@@ -57,8 +57,26 @@ class OrientationAnalyzer:
         self.dxy = dxy
         self.dyy = dyy
 
+    def get_orientation_image(self, mask=None):
+        mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)
+        orient_image = np.zeros_like(self.gray)
+        orient_image[mask] = self.orient[mask]
+        return orient_image
+
+    def get_coherency_image(self, mask=None):
+        mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)
+        coherency_image = np.zeros_like(self.gray)
+        coherency_image[mask] = self.coherency[mask]
+        return coherency_image
+
+    def get_energy_image(self, mask=None):
+        mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)
+        energy_image = np.zeros_like(self.gray)
+        energy_image[mask] = self.energy[mask]
+        return energy_image
+
     def mean_orientation(self, mask=None):
-        mask = img_as_bool(mask) if mask else np.ones_like(self.gray, dtype=bool)
+        mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)
 
         vxy = np.mean(self.dxy[mask])
         vxx = np.mean(self.dxx[mask])
@@ -66,18 +84,18 @@ class OrientationAnalyzer:
         return np.rad2deg(0.5*np.arctan2(2.0*vxy, vyy-vxx))
 
     def mean_coherency(self, mask=None):
-        mask = img_as_bool(mask) if mask else np.ones_like(self.gray, dtype=bool)
+        mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)
         vxy = np.mean(self.dxy[mask])
         vxx = np.mean(self.dxx[mask])
         vyy = np.mean(self.dyy[mask])
         return np.sqrt((vyy-vxx)**2 + 4.0*vxy**2) / (vxx + vyy + np.finfo(float).eps)
 
     def circular_variance(self, mask=None):
-        mask = img_as_bool(mask) if mask else np.ones_like(self.gray, dtype=bool)
+        mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)
         return circvar(self.orient[mask] + np.pi/2.0, high=np.pi)
 
     def randomness_orientation(self, bins=180, mask=None):
-        mask = img_as_bool(mask) if mask else np.ones_like(self.gray, dtype=bool)
+        mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)
         hist, _ = np.histogram((self.orient[mask]+np.pi/2)/np.pi*180, bins=bins, range=(0, 180), density=True)
 
         probabilities = hist[hist > 0] / np.sum(hist[hist > 0])
@@ -91,7 +109,7 @@ class OrientationAnalyzer:
         return 1.0 / (kl_divergence + 1.0 + np.finfo(float).eps)
 
     def draw_angular_hist(self, N=8, mask=None):
-        mask = img_as_bool(mask) if mask else np.ones_like(self.gray, dtype=bool)
+        mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)
         fig = Figure(figsize=(4, 4), dpi=300)
         ax = fig.add_subplot(polar=True)
 
@@ -186,7 +204,7 @@ class OrientationAnalyzer:
         return cv2.addWeighted(np.atleast_3d(self.image), 0.7, vf, 0.7, 50)
 
     def draw_color_survey(self, mask=None):
-        mask = img_as_bool(mask) if mask else np.ones_like(self.gray, dtype=bool)
+        mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)
 
         # Normalize orientation to [0, 1] then scale to [0, 179] for hue
         hue = (((self.orient + np.pi/2) / np.pi) * 179).astype(np.uint8)

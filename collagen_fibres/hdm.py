@@ -21,38 +21,32 @@ def quantify_black_space(image_path, save_dir, ext=".png", max_hdm=220, sat_rati
     elif os.path.isfile(image_path) and any(image_path.lower().endswith(e) for e in ext_list):
         img_paths.append(image_path)
 
-    header = ["Image Name", "% Black"]
-    df = pd.DataFrame(columns=header)
+    img_names = []
+    hdm = []
     for img_path in img_paths:
         enhanced_image = enhance_contrast(img_path, max_hdm=max_hdm, sat_ratio=sat_ratio, dark_line=dark_line)
-        cv2.imwrite(join_path(save_dir, os.path.basename(img_path)[:-4]+"_roi.png"),
-                    (enhanced_image > 0).astype(np.uint8)*255)
-        df.loc[len(df)] = [os.path.basename(img_path),
-                           np.count_nonzero(enhanced_image > 0)/np.prod(enhanced_image.shape[:2])]
+        cv2.imwrite(join_path(save_dir, os.path.basename(img_path)[:-4]+"_roi.png"), enhanced_image)
+        img_names.append(os.path.basename(img_path)[:-4]+"_roi.png")
+        hdm.append(np.count_nonzero(enhanced_image > 0)/np.prod(enhanced_image.shape[:2]))
+        # df.loc[len(df)] = [os.path.basename(img_path),
+        #                    np.count_nonzero(enhanced_image > 0)/np.prod(enhanced_image.shape[:2])]
     result_csv = join_path(save_dir, "_ResultsHDM.csv")
-    df.to_csv(result_csv, index=False)
-        # print(f"Image name {os.path.basename(img_path)}: "
-        #       f"% HDM = {np.count_nonzero(enhanced_image>0)/np.prod(enhanced_image.shape[:2])}")
+    data = {'Image': img_names, '% HDM Area': hdm}
+    df_hdm = pd.DataFrame(data)
+    df_hdm.to_csv(result_csv, index=False)
+    return df_hdm
 
 
 def enhance_contrast(image_path, max_hdm=220, sat_ratio=0.1, dark_line=False):
-    # Load the image
     raw_image = np.asarray(iio.imread(image_path))
+    image = raw_image if raw_image.dtype == np.uint8 else cv2.normalize(raw_image, None, 0, 255, cv2.NORM_MINMAX)
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) if len(image.shape) == 3 else image
 
-    if len(raw_image.shape) == 3:
-       image = cv2.cvtColor(raw_image, cv2.COLOR_RGB2GRAY)
-    else:
-        image = raw_image
-
-    if image.dtype != np.uint8:
-        # Normalize the image to 0-255 and convert to uint8
-        image = ((image - image.min()) / (image.max() - image.min() + np.finfo(float).eps) * 255).astype(np.uint8)
-
-    if not dark_line:
+    if dark_line:
         image = 255 - image
 
     image = np.clip(image, 0, max_hdm).astype(float)
-    image = 255 - ((image - image.min()) / (image.max() - image.min() + np.finfo(float).eps) * 255).astype(np.uint8)
+    image = ((image - image.min()) / (image.max() - image.min() + np.finfo(float).eps) * 255).astype(np.uint8)
     percent_saturation = sat_ratio * 100
     pl, pu = np.percentile(image, (percent_saturation/2.0, 100-percent_saturation/2.0))
     enhanced_image = exposure.rescale_intensity(image, in_range=(pl, pu))
