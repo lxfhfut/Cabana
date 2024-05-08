@@ -26,21 +26,21 @@ class BatchProcessor:
         self.program_folder = filedialog.askdirectory(initialdir=os.path.expanduser("~/Documents/"),
                                                       title="Choose Program Directory")
         if len(self.program_folder) == 0 or len(os.listdir(self.program_folder)) == 0:
-            print("An empty path/folder has been selected. Abort!")
+            print("No path/folder has been selected. Abort!")
             os._exit(1)
         print(self.program_folder + " has been selected.")
 
         self.input_folder = filedialog.askdirectory(initialdir=os.path.dirname(self.program_folder),
                                                     title="Choose Input Directory")
         if len(self.input_folder) == 0 or len(os.listdir(self.input_folder)) == 0:
-            print("An empty path/folder has been selected. Abort.")
+            print("No path/folder has been selected. Abort.")
             os._exit(1)
         print(self.input_folder + " has been selected.")
 
         self.output_folder = filedialog.askdirectory(initialdir=os.path.dirname(self.input_folder),
                                                      title="Choose Output Directory")
         if len(self.output_folder) == 0:
-            print("An empty path has been selected. Abort.")
+            print("No path/folder has been selected. Abort.")
             os._exit(1)
         print(self.output_folder + " has been selected.")
         gui.destroy()

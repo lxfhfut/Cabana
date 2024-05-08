@@ -33,7 +33,7 @@ read_bar_format = "%s{l_bar}%s{bar}%s{r_bar}" % ("\033[0;34m", "\033[0;34m", "\0
 
 
 def array_divide(a, b):
-    return np.divide(a, b, out=np.zeros_like(a), where=(b != 0), casting="unsafe")
+    return np.divide(a, b, out=np.zeros_like(a, dtype=np.float64), where=(b != 0), casting="unsafe")
 
 
 def contains_oversized(img_paths, max_res=2048):
