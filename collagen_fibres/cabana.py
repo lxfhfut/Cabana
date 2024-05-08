@@ -12,7 +12,7 @@ import tifffile as tiff
 import imageio.v3 as iio
 from detector import FibreDetector
 from analyzer import SkeletonAnalyzer
-from hdm import quantify_black_space
+from hdm import HDM
 from orientation import OrientationAnalyzer
 
 from pathlib import Path
@@ -314,29 +314,22 @@ class Cabana:
         df_skel = pd.DataFrame(data)
         self.df_stats = self.df_stats.merge(df_skel, on="Image")
 
+    def quantify_hdm(self):
+        Log.logger.info(f"Quantifying High Density Matrix (HDM) areas for "
+                        f"{len(glob(join_path(self.eligible_dir, '*.png')))} images.")
+        max_hdm = self.args["Quantification"]["Maximum Display HDM"],
+        dark_line = self.args["Detection"]["Dark Line"]
+        hdm = HDM(max_hdm=max_hdm, sat_ratio=0.1, dark_line=dark_line)
+        hdm.quantify_black_space(self.eligible_dir, self.hdm_dir, ext=".png")
+        self.df_stats = hdm.df_hdm
+
     def quantify_images(self):
-
         if len(glob(join_path(self.roi_dir, '*.png'))) > 0:
-            # HDM
-            Log.logger.info(f"Quantifying High Density Matrix (HDM) areas for "
-                            f"{len(glob(join_path(self.eligible_dir, '*.png')))} images.")
-            df_hdm = quantify_black_space(self.eligible_dir, self.hdm_dir, ext=".png",
-                                          max_hdm=self.args["Quantification"]["Maximum Display HDM"],
-                                          dark_line=self.args["Detection"]["Dark Line"])
-            self.df_stats = df_hdm
-
-            # Ridge detection
-            self.detect_fibres()
-
-            # Skeleton analysis
-            self.quantify_skeletons()
-
-            # Orientation analysis
-            self.analyze_orientations()
-
+            self.quantify_hdm()  # HDM
+            self.detect_fibres()  # Ridge detection
+            self.quantify_skeletons()  # Skeleton analysis
+            self.analyze_orientations()  # Orientation analysis
             Log.logger.info('Image analysis finished.')
-        else:
-            return {}
 
     def visualize_fibres(self, thickness=3):
         Log.logger.info('Generating fibre visualization results.')
