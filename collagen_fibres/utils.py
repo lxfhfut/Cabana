@@ -29,6 +29,12 @@ from skimage.morphology import dilation, disk
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
+read_bar_format = "%s{l_bar}%s{bar}%s{r_bar}" % ("\033[0;34m", "\033[0;34m", "\033[0;34m")
+
+
+def array_divide(a, b):
+    return np.divide(a, b, out=np.zeros_like(a), where=(b != 0), casting="unsafe")
+
 
 def contains_oversized(img_paths, max_res=2048):
     max_size = max_res * max_res

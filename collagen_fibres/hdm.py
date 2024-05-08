@@ -28,9 +28,7 @@ def quantify_black_space(image_path, save_dir, ext=".png", max_hdm=220, sat_rati
         cv2.imwrite(join_path(save_dir, os.path.basename(img_path)[:-4]+"_roi.png"), enhanced_image)
         img_names.append(os.path.basename(img_path)[:-4]+"_roi.png")
         hdm.append(np.count_nonzero(enhanced_image > 0)/np.prod(enhanced_image.shape[:2]))
-        # df.loc[len(df)] = [os.path.basename(img_path),
-        #                    np.count_nonzero(enhanced_image > 0)/np.prod(enhanced_image.shape[:2])]
-    result_csv = join_path(save_dir, "_ResultsHDM.csv")
+    result_csv = join_path(save_dir, "ResultsHDM.csv")
     data = {'Image': img_names, '% HDM Area': hdm}
     df_hdm = pd.DataFrame(data)
     df_hdm.to_csv(result_csv, index=False)

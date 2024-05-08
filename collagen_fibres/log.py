@@ -4,25 +4,17 @@ import sys
 import logging
 import datetime
 import colorlog
-import pathlib
-from logging.handlers import RotatingFileHandler
-
 import yaml
-
-
-class ImageJFilter(logging.Filter):
-    def filter(self, record):
-        msg = record.getMessage()
-        return not (msg.startswith('Added') or
-                    msg.startswith('The JVM') or
-                    msg.startswith('findfont') or
-                    msg.startswith('loaded') or
-                    msg.startswith('Overwriting'))
+from logging.handlers import RotatingFileHandler
 
 
 class Log:
     def __init__(self):
-        pass
+        self.log_name = None
+        self.formatter = None
+        self.log_colors_config = None
+        self.logger = None
+        self.log_path = None
 
     def init_log_path(self, log_path=None):
         if log_path:
@@ -52,7 +44,7 @@ class Log:
         if not os.path.exists(self.log_path):
             os.mkdir(self.log_path)
 
-        self.log_name = os.path.join(self.log_path, '%s.log' % time.strftime('%Y-%m-%d'))
+        self.log_name = os.path.join(self.log_path, '%s.log' % time.strftime('%Y-%m-%d-%H-%M-%S'))
 
         # Clean old logs
         self.handle_logs()
@@ -61,7 +53,6 @@ class Log:
         stream_handler = logging.StreamHandler()
         stream_handler.setLevel(logging.INFO)
         stream_handler.setFormatter(self.formatter)
-        stream_handler.addFilter(ImageJFilter())
         self.logger.addHandler(stream_handler)
 
         # FileHandler for writing log files
@@ -69,7 +60,6 @@ class Log:
                                  encoding='utf-8')
         fh.setLevel(logging.DEBUG)
         fh.setFormatter(self.formatter)
-        fh.addFilter(ImageJFilter())
         self.logger.addHandler(fh)
 
     def get_file_sorted(self):
@@ -116,19 +106,12 @@ class Log:
                 data = yaml.safe_load(pf)
                 for line in yaml.dump(data, default_flow_style=False).split("\n"):
                     self.logger.info(line)
-            # with open(param_path) as f:
-            #     lines = f.readlines()
-            #     for line in lines:
-            #         param_pair = line.rstrip().split(",")
-            #         key = param_pair[0]
-            #         value = param_pair[1]
-            #         self.logger.info("{}:   {}".format(key, value))
             str_footer = '*' * ((len(str_header) - 3) // 2) + "End" + '*' * ((len(str_header) - 3) // 2)
             self.logger.info(str_footer)
 
-    def delete_logs(self, file_path):
+    def delete_logs(self):
         try:
-            os.remove(file_path)
+            os.remove(self.log_path)
         except PermissionError as e:
             Log().warning('Failed to delete log file：{}'.format(e))
 

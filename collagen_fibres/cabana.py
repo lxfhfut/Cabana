@@ -1,6 +1,5 @@
 import os
-from PIL import Image
-from tqdm import tqdm
+import yaml
 import csv
 import cv2
 import shutil
@@ -8,10 +7,10 @@ import numpy as np
 import pandas as pd
 from glob import glob
 from log import Log
+from PIL import Image
 import tifffile as tiff
-import yaml
 import imageio.v3 as iio
-from detector import MSFibreDetector
+from detector import FibreDetector
 from analyzer import SkeletonAnalyzer
 from hdm import quantify_black_space
 from orientation import OrientationAnalyzer
@@ -24,16 +23,19 @@ from sklearn.metrics.pairwise import euclidean_distances
 from segmenter import parse_args, segment_single_image, visualize_fibres
 from skimage.color import rgb2hed, hed2rgb, rgb2gray
 
+from tqdm import tqdm
+from utils import read_bar_format, array_divide
+
 
 class Cabana:
     def __init__(self, program_folder, input_folder, out_folder,
-                 batch_size=5, batch_idx=0, ignore_oversized=True):
+                 batch_size=5, batch_idx=0, ignore_large=True):
         self.param_file = "Parameters.yml"
 
         self.args = None  # args for Cabana program
         self.seg_args = parse_args()  # args for segmentation
         self.ims_res = 1.0  # µm/pixel
-        self.df_statistics = pd.DataFrame()
+        self.df_stats = pd.DataFrame()
 
         # self.ij = ij
         self.program_folder = program_folder
@@ -41,7 +43,7 @@ class Cabana:
         self.output_folder = out_folder
         self.batch_idx = batch_idx
         self.batch_size = batch_size
-        self.ignore_oversized = ignore_oversized
+        self.ignore_large = ignore_large
 
         # Create sub-folders in output directory
         self.roi_dir = join_path(self.output_folder, 'ROIs', "")
@@ -65,31 +67,28 @@ class Cabana:
         setattr(self.seg_args, 'bin_dir', self.bin_dir)
 
     def initialize_params(self):
-        Log.init_log_path(join_path(self.program_folder, 'logs'))
-        Log.logger.info('Logs folder: {}'.format(join_path(self.program_folder, 'logs')))
         param_path = join_path(self.program_folder, self.param_file)
         with open(param_path) as pf:
             try:
                 self.args = yaml.safe_load(pf)
             except yaml.YAMLError as exc:
                 print(exc)
-        # print(self.args['Initialization']['Max Size'])
-        # overwrite some fields of seg_args
+
+        # overwrite specific fields of seg_args with those in the parameter file
         setattr(self.seg_args, 'num_channels', int(self.args['Segmentation']["Number of Labels"]))
         setattr(self.seg_args, 'max_iter', int(self.args['Segmentation']["Max Iterations"]))
         setattr(self.seg_args, 'hue_value', float(self.args['Segmentation']["Normalized Hue Value"]))
         setattr(self.seg_args, 'rt', float(self.args['Segmentation']["Color Threshold"]))
         setattr(self.seg_args, 'max_size', int(self.args['Segmentation']["Max Size"]))
         setattr(self.seg_args, 'min_size', int(self.args['Segmentation']["Min Size"]))
-        Log.log_parameters(param_path)
 
-    def remove_oversized_imgs(self):
+    def remove_large_images(self):
         img_paths = get_img_paths(self.input_folder)
         path_batches, res_batches = split2batches(img_paths, self.batch_size)
 
         max_line_width = self.args['Detection']["Max Line Width"]
         max_size = self.args["Segmentation"]["Max Size"]
-        with open(join_path(self.eligible_dir, "Ignored_images.txt"), 'w') as f:
+        with open(join_path(self.eligible_dir, "IgnoredImages.txt"), 'w') as f:
             count_black = 0
             count_oversized = 0
             for img_path in path_batches[self.batch_idx]:
@@ -109,7 +108,7 @@ class Cabana:
                 elif height*width <= max_size**2 and bright_percent > 0.01:
                     cv2.imwrite(join_path(self.eligible_dir, os.path.splitext(img_name)[0] + ".png"), img)
                 elif height*width > max_size and bright_percent > 0.01:
-                    if self.ignore_oversized:
+                    if self.ignore_large:
                         count_oversized += 1
                         f.write(img_path+"\n")
                     else:
@@ -132,14 +131,14 @@ class Cabana:
         if count_black > 0:
             Log.logger.warning('{} black or small-sized images have been ignored.'.format(count_black))
         if count_oversized > 0:
-            msg = "ignored" if self.ignore_oversized else "split into smaller blocks"
+            msg = "ignored" if self.ignore_large else "split into smaller blocks"
             Log.logger.warning('{} over-sized images have been {}.'.format(count_oversized, msg))
 
         self.input_folder = self.eligible_dir
         self.ims_res = res_batches[self.batch_idx]
 
-        Log.logger.info("Image resolution of Batch {} has been updated to {} microns/pixel".format(
-            self.batch_idx+1, str(res_batches[self.batch_idx])))
+        # Log.logger.info(f"Image resolution of Batch {self.batch_idx+1} "
+        #                 f"is {str(res_batches[self.batch_idx])}µm/pixel")
 
     def generate_rois(self):
         img_paths = get_img_paths(self.input_folder)
@@ -173,15 +172,15 @@ class Cabana:
         low_contrast = self.args["Detection"]["Low Contrast"]
         high_contrast = self.args["Detection"]["High Contrast"]
         min_len = self.args["Detection"]["Minimum Branch Length"]
-        Log.logger.info(f"Detecting fibres with line widths: {line_widths} pixels...")
-        det = MSFibreDetector(line_widths=line_widths,
-                              low_contrast=low_contrast,
-                              high_contrast=high_contrast,
-                              dark_line=dark_line,
-                              extend_line=extend_line,
-                              correct_pos=correct_pos,
-                              min_len=min_len)
-        for img_path in tqdm(glob(join_path(self.roi_dir, '*.png'))):
+        Log.logger.info(f"Detecting fibres with line widths: {line_widths} pixels.")
+        det = FibreDetector(line_widths=line_widths,
+                            low_contrast=low_contrast,
+                            high_contrast=high_contrast,
+                            dark_line=dark_line,
+                            extend_line=extend_line,
+                            correct_pos=correct_pos,
+                            min_len=min_len)
+        for img_path in tqdm(glob(join_path(self.roi_dir, '*.png')), bar_format=read_bar_format):
             det.detect_lines(img_path)
             contour_img, width_img, binary_contours, binary_widths = det.get_results()
 
@@ -209,8 +208,8 @@ class Cabana:
         orient_analyzer = OrientationAnalyzer(2.0)
         alignments = []
         img_names = []
-        Log.logger.info("Analyzing orientations...")
-        for img_path in tqdm(glob(join_path(self.roi_dir, '*.png'))):
+        Log.logger.info("Analyzing orientations.")
+        for img_path in tqdm(glob(join_path(self.roi_dir, '*.png')), bar_format=read_bar_format):
             ori_img_name = os.path.basename(img_path)
             img_names.append(ori_img_name)
             name_wo_ext = ori_img_name[:ori_img_name.rindex('.')]
@@ -243,7 +242,7 @@ class Cabana:
         data = {'Image': img_names,
                 'Alignment': alignments}
         df_orient = pd.DataFrame(data)
-        self.df_statistics = self.df_statistics.merge(df_orient, on="Image")
+        self.df_stats = self.df_stats.merge(df_orient, on="Image")
 
     def quantify_skeletons(self):
         min_skel_size = self.args["Quantification"]["Minimum Skeleton Size (um)"] / self.ims_res
@@ -263,8 +262,9 @@ class Cabana:
         curvatures = {}
         for win_sz in np.arange(min_curve_win, max_curve_win + curve_win_step, curve_win_step):
             curvatures[f"Curvature_{win_sz:.0f}"] = []
-        Log.logger.info("Quantifying skeletons...")
-        for img_path in tqdm(glob(join_path(self.mask_dir, '*.png'))):
+
+        Log.logger.info("Quantifying skeletons.")
+        for img_path in tqdm(glob(join_path(self.mask_dir, '*.png')), bar_format=read_bar_format):
             skel_analyzer.reset()
             skel_analyzer.analyze_image(img_path)
             ori_img_name = os.path.basename(img_path)
@@ -297,28 +297,28 @@ class Cabana:
                     skel_analyzer.curve_map_all)
 
         data = {'Image': img_names,
-                'Area (microns^2)': proj_areas,
+                'Area (µm²)': proj_areas,
                 'Lacunarity': lacunarities,
-                'Total Length (microns)': total_lengths,
+                'Total Length (µm)': total_lengths,
                 'Endpoints': end_points,
-                'HGU (microns)': growth_units,
+                'HGU (µm)': growth_units,
                 'Branchpoints': branch_points,
                 'Box-Counting Fractal Dimension': frac_dims,
                 'TotalImageArea': total_areas
                 }
         data.update(curvatures)
         df_skel = pd.DataFrame(data)
-        self.df_statistics = self.df_statistics.merge(df_skel, on="Image")
+        self.df_stats = self.df_stats.merge(df_skel, on="Image")
 
     def quantify_images(self):
 
         if len(glob(join_path(self.roi_dir, '*.png'))) > 0:
             # HDM
-            Log.logger.info("Quantifying High Density Matrix (HDM) areas...")
+            Log.logger.info("Quantifying High Density Matrix (HDM) areas.")
             df_hdm = quantify_black_space(self.eligible_dir, self.hdm_dir, ext=".png",
                                           max_hdm=self.args["Quantification"]["Maximum Display HDM"],
                                           dark_line=self.args["Detection"]["Dark Line"])
-            self.df_statistics = df_hdm
+            self.df_stats = df_hdm
 
             # Ridge detection
             self.detect_fibres()
@@ -329,12 +329,12 @@ class Cabana:
             # Orientation analysis
             self.analyze_orientations()
 
-            Log.logger.info('Image analyses finished.')
+            Log.logger.info('Image analysis finished.')
         else:
             return {}
 
     def visualize_fibres(self, thickness=3):
-        Log.logger.info('Generating fibre visualization results...')
+        Log.logger.info('Generating fibre visualization results.')
         img_paths = get_img_paths(self.input_folder)
         img_paths.sort()
         for img_path in img_paths:
@@ -347,14 +347,14 @@ class Cabana:
     def calc_fibre_areas(self):
         img_paths = glob(join_path(self.bin_dir, '*.png'))
         img_paths.sort()
-        with open(join_path(self.bin_dir, 'Results_ROI.csv'), 'w', encoding='UTF8') as f:
+        with open(join_path(self.bin_dir, 'ResultsROI.csv'), 'w', encoding='UTF8') as f:
             writer = csv.writer(f)
             writer.writerow(
                 ['Image', 'Area (ROI)', '% ROI Area', 'Area (WIDTH)', '% WIDTH Area',
                  'Mean Fibre Intensity (ROI)',
                  'Mean Fibre Intensity (WIDTH)',
                  'Mean Fibre Intensity (HDM)'])
-            Log.logger.info('Calculating fibre areas for {} images'.format(len(img_paths)))
+            Log.logger.info('Calculating fibre areas for {} images.'.format(len(img_paths)))
             for img_path in img_paths:
                 img_mask = cv2.imread(img_path, 0)
                 area_roi = np.sum(img_mask > 128).astype(float)  # ROI area
@@ -387,12 +387,12 @@ class Cabana:
                         mean_intensity_roi, mean_intensity_width, mean_intensity_hdm]
                 writer.writerow(data)
 
-            Log.logger.info('Areas have been saved in {}'.format(join_path(self.bin_dir, 'Results_ROI.csv')))
+            Log.logger.info('Areas have been saved in {}'.format(join_path(self.bin_dir, 'ResultsROI.csv')))
 
-    def gap_analysis(self):
+    def analyze_all_gaps(self):
         min_gap_diameter = -1
-        if "Minimum Gap Diameter (um)" in self.args["Quantification"].keys():
-            min_gap_diameter = self.args["Quantification"]["Minimum Gap Diameter (um)"]
+        if "Minimum Gap Diameter (pixels)" in self.args["Quantification"].keys():
+            min_gap_diameter = self.args["Quantification"]["Minimum Gap Diameter (pixels)"]
         if min_gap_diameter == -1:
             Log.logger.warning("'Minimum Gap Diameter can not be found in {}.".format(self.param_file))
         elif min_gap_diameter == 0:
@@ -401,81 +401,88 @@ class Cabana:
         else:
             Log.logger.info(
                 f"Performing gap analysis with "
-                f"Minimum Gap Diameter={min_gap_diameter:.1f} microns "
-                f"({round(min_gap_diameter/self.ims_res)} pixels).")
-            min_gap_diameter = round(min_gap_diameter/self.ims_res)
+                f"minimum gap diameter = {min_gap_diameter*self.ims_res:.1f}µm "
+                f"({min_gap_diameter} pixels).")
 
             gap_result_dir = join_path(self.mask_dir, 'GapAnalysis')
             Path(gap_result_dir).mkdir(parents=True, exist_ok=True)
-            gap_analysis_file = join_path(gap_result_dir, "GapAnalysisSummary.txt")
-            with open(gap_analysis_file, 'w+') as summary_file:
-                summary_file.write("filename mean std percentile5 median percentile95 counts\n")
-                img_paths = glob(join_path(self.mask_dir, '*.png'))
-                Log.logger.info(
-                    "Performing gap analysis on {} images with a minimum gap diameter of {}.".format(len(img_paths),
-                                                                                                     min_gap_diameter))
-                for img_path in img_paths:
-                    min_gap_radius = min_gap_diameter / 2
-                    min_dist = int(np.max([1, min_gap_radius // 2]))
-                    img = cv2.imread(img_path, 0)
-                    mask = img.copy()
+            # gap_analysis_file = join_path(gap_result_dir, "GapAnalysisSummary.txt")
+            # with open(gap_analysis_file, 'w+') as summary_file:
+            img_paths = glob(join_path(self.mask_dir, '*.png'))
+            names, means, stds, percentile5, median, percentile95, counts = [], [], [], [], [], [], []
+            for img_path in img_paths:
+                min_gap_radius = min_gap_diameter / 2
+                min_dist = int(np.max([1, min_gap_radius // 2]))
+                img = cv2.imread(img_path, 0)
+                mask = img.copy()
 
-                    # set border pixels to zero to avoid partial circles
-                    mask[0, :] = mask[-1, :] = mask[:, :1] = mask[:, -1:] = 0
+                # set border pixels to zero to avoid partial circles
+                mask[0, :] = mask[-1, :] = mask[:, :1] = mask[:, -1:] = 0
 
-                    final_circles = []
-                    while True:
-                        dist_map = cv2.distanceTransform(mask, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
-                        centers = peak_local_max(dist_map, min_distance=min_dist, exclude_border=False)
-                        radius = dist_map[centers[:, 0], centers[:, 1]]
+                final_circles = []
+                while True:
+                    dist_map = cv2.distanceTransform(mask, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
+                    centers = peak_local_max(dist_map, min_distance=min_dist, exclude_border=False)
+                    radius = dist_map[centers[:, 0], centers[:, 1]]
 
-                        eligible_centers = centers[radius > min_gap_radius, :]
-                        eligible_radius = radius[radius > min_gap_radius]
-                        eligible_circles = np.hstack([eligible_centers, eligible_radius[:, None]])
+                    eligible_centers = centers[radius > min_gap_radius, :]
+                    eligible_radius = radius[radius > min_gap_radius]
+                    eligible_circles = np.hstack([eligible_centers, eligible_radius[:, None]])
 
-                        if len(eligible_circles) == 0:
-                            break
+                    if len(eligible_circles) == 0:
+                        break
 
-                        result = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
-                        while len(eligible_circles) > 0:
-                            if eligible_circles[1:, :].size > 0:
-                                pw_euclidean_dist = \
-                                    euclidean_distances(eligible_circles[[0], :2], eligible_circles[1:, :2])[0]
-                                pw_radius_sum = eligible_circles[0, 2] + eligible_circles[1:, 2]
-                                neighbor_idx = np.nonzero(pw_euclidean_dist < pw_radius_sum)[0] + 1
-                                eligible_circles = np.delete(eligible_circles, neighbor_idx, axis=0)
+                    result = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+                    while len(eligible_circles) > 0:
+                        if eligible_circles[1:, :].size > 0:
+                            pw_euclidean_dist = \
+                                euclidean_distances(eligible_circles[[0], :2], eligible_circles[1:, :2])[0]
+                            pw_radius_sum = eligible_circles[0, 2] + eligible_circles[1:, 2]
+                            neighbor_idx = np.nonzero(pw_euclidean_dist < pw_radius_sum)[0] + 1
+                            eligible_circles = np.delete(eligible_circles, neighbor_idx, axis=0)
 
-                            circle = eligible_circles[0, :]
-                            result = cv2.circle(result, (int(circle[1]), int(circle[0])), int(circle[2]), (0, 0, 0), -1)
-                            final_circles.append(eligible_circles[0, :])
-                            eligible_circles = np.delete(eligible_circles, 0, axis=0)
+                        circle = eligible_circles[0, :]
+                        result = cv2.circle(result, (int(circle[1]), int(circle[0])), int(circle[2]), (0, 0, 0), -1)
+                        final_circles.append(eligible_circles[0, :])
+                        eligible_circles = np.delete(eligible_circles, 0, axis=0)
 
-                        mask = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+                    mask = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
 
-                    final_result = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-                    for circle in final_circles:
-                        final_result = cv2.circle(final_result, (int(circle[1]), int(circle[0])),
-                                                  int(circle[2]), (0, 0, 255), 1)
-                    img_name = os.path.basename(img_path)
-                    cv2.imwrite(join_path(gap_result_dir, os.path.splitext(img_name)[0] + "_GapImage.png"), final_result)
-                    areas = np.pi * (np.array(final_circles)[:, 2] ** 2) * self.ims_res**2
-                    summary_file.write(
-                        "{} {:.2f} {:.2f} {:.2f} {:.2f} {:.2f} {:.0f}\n".format(img_name,
-                                                                                np.mean(areas),
-                                                                                np.std(areas),
-                                                                                np.percentile(areas, 5),
-                                                                                np.median(areas),
-                                                                                np.percentile(areas, 95),
-                                                                                areas.size))
-                    final_circles = np.array(final_circles)
-                    data = {'Area (microns^2)': areas,
-                            'X': final_circles[:, 1],
-                            'Y': final_circles[:, 0]
-                            }
-                    df = pd.DataFrame(data)
-                    df.to_csv(join_path(gap_result_dir, "IndividualGaps_" + os.path.splitext(img_name)[0] + ".csv"), index=False)
+                final_result = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+                for circle in final_circles:
+                    final_result = cv2.circle(final_result, (int(circle[1]), int(circle[0])),
+                                              int(circle[2]), (0, 0, 255), 1)
+                img_name = os.path.basename(img_path)
+                cv2.imwrite(join_path(gap_result_dir, os.path.splitext(img_name)[0] + "_GapImage.png"), final_result)
+                areas = np.pi * (np.array(final_circles)[:, 2] ** 2) * self.ims_res**2
+                names.append(img_name)
+                means.append(np.mean(areas))
+                stds.append(np.std(areas))
+                percentile5.append(np.percentile(areas, 5))
+                median.append(np.median(areas))
+                percentile95.append(np.percentile(areas, 95))
+                counts.append(areas.size)
+                final_circles = np.array(final_circles)
+                data = {'Area (µm²)': areas,
+                        'X': final_circles[:, 1],
+                        'Y': final_circles[:, 0]
+                        }
+                df = pd.DataFrame(data)
+                df.to_csv(join_path(gap_result_dir, "IndividualGaps_" + os.path.splitext(img_name)[0] + ".csv"), index=False)
+            # summary_file.write("filename mean std percentile5 median percentile95 counts\n")
+            if len(names) > 0:
+                data = {'Image': names,
+                        'Mean (gap area in µm²)': means,
+                        'Std (gap area in µm²)': stds,
+                        'Percentile5 (gap area in µm²)': percentile5,
+                        'Median (gap area in µm²)': median,
+                        'Percentile95 (gap area in µm²)': percentile95,
+                        'Gap Circles Count': counts
+                        }
+                df = pd.DataFrame(data)
+                df.to_csv(join_path(gap_result_dir, "GapAnalysisSummary.csv"), index=False)
 
-    def intra_gap_analysis(self):
+    def analyze_intra_gaps(self):
         gap_result_dir = join_path(self.mask_dir, 'GapAnalysis')
         img_paths = glob(join_path(self.bin_dir, '*.png'))
         img_paths.sort()
@@ -495,15 +502,15 @@ class Cabana:
             areas = []
             circle_cnt = 0
             for index, row in df_circles.iterrows():
-                area, x, y = row['Area (microns^2)'], int(row['X']), int(row['Y'])
-                radius = int(np.sqrt(area / 3.1416) / self.ims_res)   # convert back to measurements in pixels
+                area, x, y = row['Area (µm²)'], int(row['X']), int(row['Y'])
+                radius = int(np.sqrt(area / np.pi) / self.ims_res)   # convert back to measurements in pixels
                 if binary_mask[y, x] > 0:
                     color_img_fibre = cv2.circle(color_img_fibre, (x, y), radius, (0, 255, 0), 1)
                     areas.append(area)
                     circle_cnt += 1
 
             areas = np.array(areas)
-            radius = np.sqrt(areas / 3.1416)
+            radius = np.sqrt(areas / np.pi)
             cv2.imwrite(join_path(gap_result_dir,
                                   base_name + "_roi_GapImage_intra_gaps.png"), color_img_fibre)
             names.append(base_name + "_roi.png")
@@ -522,16 +529,15 @@ class Cabana:
 
         if names:
             data = {'Image': names,
-                    'Mean (ROI gap area in microns^2)': means,
-                    'Std (ROI gap area in microns^2)': stds,
-                    'Mean (ROI gap radius in microns)': means_radius,
-                    'Std (ROI gap radius in microns)': stds_radius,
-                    'Gaps number (ROI)': counts}
+                    'Mean (ROI gap area in µm²)': means,
+                    'Std (ROI gap area in µm²)': stds,
+                    'Mean (ROI gap radius in µm)': means_radius,
+                    'Std (ROI gap radius in µm)': stds_radius,
+                    'Gap Circles Count (ROI)': counts}
             df = pd.DataFrame(data)
             df.to_csv(join_path(gap_result_dir, 'IntraGapAnalysisSummary.csv'), index=False)
-            Log.logger.info("Intra gap analysis done.")
         else:
-            Log.logger.warning('There seems no gap analysis.')
+            Log.logger.warning('No gap analysis results. Skipping intra gap analysis.')
 
         # Moving images to 'Export' folder
         img_paths = glob(join_path(gap_result_dir, '*.png'))
@@ -541,9 +547,9 @@ class Cabana:
             shutil.copy(img_path, join_path(self.output_folder, "Exports", img_name))
 
     def combine_statistics(self):
-        Log.logger.info('Generating statistics...')
+        Log.logger.info('Generating statistics.')
 
-        segmenter_csv = join_path(self.bin_dir, 'Results_ROI.csv')
+        segmenter_csv = join_path(self.bin_dir, 'ResultsROI.csv')
         df_segmenter = pd.read_csv(segmenter_csv)
 
         # Check if image names are unique
@@ -560,8 +566,8 @@ class Cabana:
         mean_red_intensity_roi = []
         mean_red_intensity_width = []
         mean_red_intensity_hdm = []
-        for i in range(len(self.df_statistics)):
-            img_name = self.df_statistics.loc[i, 'Image']
+        for i in range(len(self.df_stats)):
+            img_name = self.df_stats.loc[i, 'Image']
             if img_name[:-4] + ".png" in df_segmenter['Image'].values:
                 max_idx = (df_segmenter['Image'] == (img_name[:-4] + ".png")).idxmax()
                 area_roi.append(df_segmenter.loc[max_idx, 'Area (ROI)'])
@@ -583,43 +589,45 @@ class Cabana:
 
         area_roi = [v*self.ims_res**2 for v in area_roi]
         area_width = [v*self.ims_res**2 for v in area_width]
-        self.df_statistics = (
-            self.df_statistics.rename(columns={'Area (microns^2)': 'Projected Area of Fibre Spines (microns^2)'}))
-        self.df_statistics = self.df_statistics.rename(columns={'% High Density Matrix': '% HDM Area'})
-        self.df_statistics.insert(
-            self.df_statistics.columns.get_loc("Projected Area of Fibre Spines (microns^2)") + 1,
-            "Fibre Area (ROI, microns^2)", area_roi)
-        self.df_statistics.insert(
-            self.df_statistics.columns.get_loc("Fibre Area (ROI, microns^2)") + 1,
-            "Fibre Area (WIDTH, microns^2)", area_width)
-        self.df_statistics.insert(
-            self.df_statistics.columns.get_loc("% HDM Area") + 1,
+        self.df_stats = (
+            self.df_stats.rename(columns={'Area (µm²)': 'Projected Area of Fibre Spines (µm²)'}))
+        self.df_stats = self.df_stats.rename(columns={'% High Density Matrix': '% HDM Area'})
+        self.df_stats.insert(
+            self.df_stats.columns.get_loc("Projected Area of Fibre Spines (µm²)") + 1,
+            "Fibre Area (ROI, µm²)", area_roi)
+        self.df_stats.insert(
+            self.df_stats.columns.get_loc("Fibre Area (ROI, µm²)") + 1,
+            "Fibre Area (WIDTH, µm²)", area_width)
+        self.df_stats.insert(
+            self.df_stats.columns.get_loc("% HDM Area") + 1,
             "% ROI Area", percent_roi)
-        self.df_statistics.insert(
-            self.df_statistics.columns.get_loc("% ROI Area") + 1, "% WIDTH Area", percent_width)
-        self.df_statistics.insert(
-            self.df_statistics.columns.get_loc("% WIDTH Area") + 1,
+        self.df_stats.insert(
+            self.df_stats.columns.get_loc("% ROI Area") + 1, "% WIDTH Area", percent_width)
+        self.df_stats.insert(
+            self.df_stats.columns.get_loc("% WIDTH Area") + 1,
             "Mean Fibre Intensity (HDM)", mean_red_intensity_hdm)
-        self.df_statistics.insert(self.df_statistics.columns.get_loc("Mean Fibre Intensity (HDM)") + 1,
-                                  "Mean Fibre Intensity (ROI)", mean_red_intensity_roi)
-        self.df_statistics.insert(self.df_statistics.columns.get_loc("Mean Fibre Intensity (ROI)") + 1,
-                                  "Mean Fibre Intensity (WIDTH)", mean_red_intensity_width)
+        self.df_stats.insert(self.df_stats.columns.get_loc("Mean Fibre Intensity (HDM)") + 1,
+                             "Mean Fibre Intensity (ROI)", mean_red_intensity_roi)
+        self.df_stats.insert(self.df_stats.columns.get_loc("Mean Fibre Intensity (ROI)") + 1,
+                             "Mean Fibre Intensity (WIDTH)", mean_red_intensity_width)
 
         # Calculate other metrics
         def move_column_inplace(df, col, pos):
             col = df.pop(col)
             df.insert(pos, col.name, col)
 
-        percent = self.df_statistics.loc[:, '% HDM Area'].tolist()
-        self.df_statistics = self.df_statistics.rename(columns={'TotalImageArea': 'Total Image Area (microns^2)'})
-        self.df_statistics['Total Image Area (microns^2)'] = self.df_statistics['Total Image Area (microns^2)'].mul(self.ims_res**2)
+        percent = self.df_stats.loc[:, '% HDM Area'].tolist()
+        self.df_stats = self.df_stats.rename(columns={'TotalImageArea': 'Total Image Area (µm²)'})
+        self.df_stats['Total Image Area (µm²)'] = self.df_stats['Total Image Area (µm²)'].mul(self.ims_res**2)
 
-        self.df_statistics.insert(self.df_statistics.columns.get_loc("Projected Area of Fibre Spines (microns^2)")+1, 'Fibre Area (HDM, microns^2)',
-                          self.df_statistics['% HDM Area'] * self.df_statistics['Total Image Area (microns^2)'])
-        total_area = self.df_statistics.loc[:, 'Total Image Area (microns^2)'].tolist()
-        total_length = self.df_statistics.loc[:, 'Total Length (microns)'].tolist()
-        num_endpoints = self.df_statistics.loc[:, 'Endpoints'].tolist()
-        num_branchpoints = self.df_statistics.loc[:, 'Branchpoints'].tolist()
+        self.df_stats.insert(
+            self.df_stats.columns.get_loc("Projected Area of Fibre Spines (µm²)")+1,
+            'Fibre Area (HDM, µm²)',
+            self.df_stats['% HDM Area'] * self.df_stats['Total Image Area (µm²)'])
+        total_area = self.df_stats.loc[:, 'Total Image Area (µm²)'].tolist()
+        total_length = self.df_stats.loc[:, 'Total Length (µm)'].tolist()
+        num_endpoints = self.df_stats.loc[:, 'Endpoints'].tolist()
+        num_branchpoints = self.df_stats.loc[:, 'Branchpoints'].tolist()
 
         avg_length = []
         for l, e, b in zip(total_length, num_endpoints, num_branchpoints):
@@ -638,97 +646,87 @@ class Cabana:
             avg_thickness_width.append(a / l if l != 0 else 0)
 
         # Insert more metrics
-        self.df_statistics.insert(
-            self.df_statistics.columns.get_loc("Total Length (microns)") + 1,
-            "Avg Length (microns)", avg_length)
-        self.df_statistics.insert(
-            self.df_statistics.columns.get_loc("Projected Area of Fibre Spines (microns^2)") + 1,
-            "Avg Thickness (HDM, microns)", avg_thickness_hdm)
-        self.df_statistics.insert(
-            self.df_statistics.columns.get_loc("Fibre Area (ROI, microns^2)") + 1,
-            "Avg Thickness (ROI, microns)", avg_thickness_roi)
-        self.df_statistics.insert(
-            self.df_statistics.columns.get_loc("Fibre Area (WIDTH, microns^2)") + 1,
-            "Avg Thickness (WIDTH, microns)", avg_thickness_width)
+        self.df_stats.insert(
+            self.df_stats.columns.get_loc("Total Length (µm)") + 1,
+            "Avg Length (µm)", avg_length)
+        self.df_stats.insert(
+            self.df_stats.columns.get_loc("Projected Area of Fibre Spines (µm²)") + 1,
+            "Avg Thickness (HDM, µm)", avg_thickness_hdm)
+        self.df_stats.insert(
+            self.df_stats.columns.get_loc("Fibre Area (ROI, µm²)") + 1,
+            "Avg Thickness (ROI, µm)", avg_thickness_roi)
+        self.df_stats.insert(
+            self.df_stats.columns.get_loc("Fibre Area (WIDTH, µm²)") + 1,
+            "Avg Thickness (WIDTH, µm)", avg_thickness_width)
 
         # re-order HDM columns
-        move_column_inplace(self.df_statistics, 'Total Image Area (microns^2)', 1)  # move to the first column
-        move_column_inplace(self.df_statistics, 'Fibre Area (HDM, microns^2)', 3)
-        move_column_inplace(self.df_statistics, '% HDM Area',
-                            self.df_statistics.columns.get_loc("Fibre Area (HDM, microns^2)") + 1)
-        move_column_inplace(self.df_statistics, "Avg Thickness (HDM, microns)",
-                            self.df_statistics.columns.get_loc("% HDM Area") + 1)
-        move_column_inplace(self.df_statistics, "Mean Fibre Intensity (HDM)",
-                            self.df_statistics.columns.get_loc("Avg Thickness (HDM, microns)") + 1)
+        move_column_inplace(self.df_stats, 'Total Image Area (µm²)', 1)  # move to the first column
+        move_column_inplace(self.df_stats, 'Fibre Area (HDM, µm²)', 3)
+        move_column_inplace(self.df_stats, '% HDM Area',
+                            self.df_stats.columns.get_loc("Fibre Area (HDM, µm²)") + 1)
+        move_column_inplace(self.df_stats, "Avg Thickness (HDM, µm)",
+                            self.df_stats.columns.get_loc("% HDM Area") + 1)
+        move_column_inplace(self.df_stats, "Mean Fibre Intensity (HDM)",
+                            self.df_stats.columns.get_loc("Avg Thickness (HDM, µm)") + 1)
 
         # re-order ROI columns
-        move_column_inplace(self.df_statistics, "Fibre Area (ROI, microns^2)",
-                            self.df_statistics.columns.get_loc("Mean Fibre Intensity (HDM)") + 1)
-        move_column_inplace(self.df_statistics, '% ROI Area',
-                            self.df_statistics.columns.get_loc("Fibre Area (ROI, microns^2)") + 1)
-        move_column_inplace(self.df_statistics, "Avg Thickness (ROI, microns)",
-                            self.df_statistics.columns.get_loc("% ROI Area") + 1)
-        move_column_inplace(self.df_statistics, "Mean Fibre Intensity (ROI)",
-                            self.df_statistics.columns.get_loc("Avg Thickness (ROI, microns)") + 1)
+        move_column_inplace(self.df_stats, "Fibre Area (ROI, µm²)",
+                            self.df_stats.columns.get_loc("Mean Fibre Intensity (HDM)") + 1)
+        move_column_inplace(self.df_stats, '% ROI Area',
+                            self.df_stats.columns.get_loc("Fibre Area (ROI, µm²)") + 1)
+        move_column_inplace(self.df_stats, "Avg Thickness (ROI, µm)",
+                            self.df_stats.columns.get_loc("% ROI Area") + 1)
+        move_column_inplace(self.df_stats, "Mean Fibre Intensity (ROI)",
+                            self.df_stats.columns.get_loc("Avg Thickness (ROI, µm)") + 1)
 
         # re-order WIDTH columns
-        move_column_inplace(self.df_statistics, "Fibre Area (WIDTH, microns^2)",
-                            self.df_statistics.columns.get_loc("Mean Fibre Intensity (ROI)") + 1)
-        move_column_inplace(self.df_statistics, '% WIDTH Area',
-                            self.df_statistics.columns.get_loc("Fibre Area (WIDTH, microns^2)") + 1)
-        move_column_inplace(self.df_statistics, "Avg Thickness (WIDTH, microns)",
-                            self.df_statistics.columns.get_loc("% WIDTH Area") + 1)
-        move_column_inplace(self.df_statistics, "Mean Fibre Intensity (WIDTH)",
-                            self.df_statistics.columns.get_loc("Avg Thickness (WIDTH, microns)") + 1)
+        move_column_inplace(self.df_stats, "Fibre Area (WIDTH, µm²)",
+                            self.df_stats.columns.get_loc("Mean Fibre Intensity (ROI)") + 1)
+        move_column_inplace(self.df_stats, '% WIDTH Area',
+                            self.df_stats.columns.get_loc("Fibre Area (WIDTH, µm²)") + 1)
+        move_column_inplace(self.df_stats, "Avg Thickness (WIDTH, µm)",
+                            self.df_stats.columns.get_loc("% WIDTH Area") + 1)
+        move_column_inplace(self.df_stats, "Mean Fibre Intensity (WIDTH)",
+                            self.df_stats.columns.get_loc("Avg Thickness (WIDTH, µm)") + 1)
 
-        means, stds, means_radius, stds_radius, counts = [], [], [], [], []
-        gaps_csv = join_path(self.output_folder, 'Masks', 'GapAnalysis', 'IntraGapAnalysisSummary.csv')
+        means_intra, stds_intra, means_radius_intra, stds_radius_intra, counts_intra = [], [], [], [], []
+        intra_gaps_csv = join_path(self.output_folder, 'Masks', 'GapAnalysis', 'IntraGapAnalysisSummary.csv')
 
         means_total, stds_total, means_radius_total, stds_radius_total, counts_total = [], [], [], [], []
-        gap_summary_file = os.path.join(self.output_folder, 'Masks', 'GapAnalysis', 'GapAnalysisSummary.txt')
-        with open(gap_summary_file, 'r') as file:
-            # read the first line and split it into column names
-            column_names = file.readline().strip().split(' ')
-            num_columns = len(column_names)
+        gap_summary_file = os.path.join(self.output_folder, 'Masks', 'GapAnalysis', 'GapAnalysisSummary.csv')
 
-            # read the remaining lines and create a list of data
-            data = [[' '.join(line.strip().split(' ')[:-num_columns + 1]),
-                     *[float(ff) for ff in line.strip().split(' ')[-num_columns + 1:]]] for line in file]
-
-        # create a DataFrame using the column names and data
-        df_gaps_total = pd.DataFrame(data, columns=column_names)
-
-        if os.path.exists(gaps_csv):
-            df_gaps = pd.read_csv(gaps_csv)
-            gaps_img_names = df_gaps['Image'].values
+        if os.path.exists(gap_summary_file) and os.path.exists(intra_gaps_csv):
+            df_gaps_total = pd.read_csv(gap_summary_file)
+            df_gaps_intra = pd.read_csv(intra_gaps_csv)
+            gaps_img_names = df_gaps_intra['Image'].values
             if len(gaps_img_names) != len(set(gaps_img_names)):
-                Log.logger.critical('Images names are not unique in ' + gaps_csv)
+                Log.logger.critical('Images names are not unique in ' + intra_gaps_csv)
                 return
 
-            for img_name in self.df_statistics['Image']:
+            for img_name in self.df_stats['Image']:
                 img_name = img_name[:-4] + ".png"
                 if img_name in gaps_img_names:
-                    gaps_row = df_gaps[df_gaps['Image'] == img_name].iloc[0]
-                    means.append(gaps_row['Mean (ROI gap area in microns^2)'])
-                    stds.append(gaps_row['Std (ROI gap area in microns^2)'])
-                    means_radius.append(gaps_row['Mean (ROI gap radius in microns)'])
-                    stds_radius.append(gaps_row['Std (ROI gap radius in microns)'])
-                    counts.append(gaps_row['Gaps number (ROI)'])
+                    gaps_intra_row = df_gaps_intra[df_gaps_intra['Image'] == img_name].iloc[0]
+                    means_intra.append(gaps_intra_row['Mean (ROI gap area in µm²)'])
+                    stds_intra.append(gaps_intra_row['Std (ROI gap area in µm²)'])
+                    means_radius_intra.append(gaps_intra_row['Mean (ROI gap radius in µm)'])
+                    stds_radius_intra.append(gaps_intra_row['Std (ROI gap radius in µm)'])
+                    counts_intra.append(gaps_intra_row['Gap Circles Count (ROI)'])
 
-                    gaps_total_row = df_gaps_total[df_gaps_total['filename'] == img_name].iloc[0]
-                    means_total.append(gaps_total_row['mean'])
-                    stds_total.append(gaps_total_row['std'])
-                    means_radius_total.append(np.sqrt(gaps_total_row['mean'] / 3.1416))
-                    stds_radius_total.append(np.sqrt(gaps_total_row['std'] / 3.1416))
-                    counts_total.append(gaps_total_row['counts'])
+                    gaps_total_row = df_gaps_total[df_gaps_total['Image'] == img_name].iloc[0]
+                    means_total.append(gaps_total_row['Mean (gap area in µm²)'])
+                    stds_total.append(gaps_total_row['Std (gap area in µm²)'])
+                    means_radius_total.append(np.sqrt(gaps_total_row['Mean (gap area in µm²)'] / np.pi))
+                    stds_radius_total.append(np.sqrt(gaps_total_row['Std (gap area in µm²)'] / np.pi))
+                    counts_total.append(gaps_total_row['Gap Circles Count'])
 
                 else:
                     Log.logger.warning(img_name + ' cannot be found in ' + segmenter_csv)
-                    means.append(0)
-                    stds.append(0)
-                    means_radius.append(0)
-                    stds_radius.append(0)
-                    counts.append(0)
+                    means_intra.append(0)
+                    stds_intra.append(0)
+                    means_radius_intra.append(0)
+                    stds_radius_intra.append(0)
+                    counts_intra.append(0)
 
                     means_total.append(0)
                     stds_total.append(0)
@@ -736,106 +734,123 @@ class Cabana:
                     stds_radius_total.append(0)
                     counts_total.append(0)
 
-            self.df_statistics.insert(len(self.df_statistics.columns), "Mean (Total gap area in microns^2)", means_total)
-            self.df_statistics.insert(len(self.df_statistics.columns), "Std (Total gap area in microns^2)", stds_total)
-            self.df_statistics.insert(len(self.df_statistics.columns), "Mean (Total gap radius in microns)", means_radius_total)
-            self.df_statistics.insert(len(self.df_statistics.columns), "Std (Total gap radius in microns)", stds_radius_total)
-            self.df_statistics.insert(len(self.df_statistics.columns), "Gaps number (Total)", counts_total)
+            self.df_stats.insert(len(self.df_stats.columns), "Mean (total gap area in µm²)", means_total)
+            self.df_stats.insert(len(self.df_stats.columns), "Std (total gap area in µm²)", stds_total)
+            self.df_stats.insert(len(self.df_stats.columns), "Mean (total gap radius in µm)", means_radius_total)
+            self.df_stats.insert(len(self.df_stats.columns), "Std (total gap radius in µm)", stds_radius_total)
+            self.df_stats.insert(len(self.df_stats.columns), "Gap Circles Count (total)", counts_total)
 
-            self.df_statistics.insert(len(self.df_statistics.columns), "Mean (ROI gap area in microns^2)", means)
-            self.df_statistics.insert(len(self.df_statistics.columns), "Std (ROI gap area in microns^2)", stds)
-            self.df_statistics.insert(len(self.df_statistics.columns), "Mean (ROI gap radius in microns)", means_radius)
-            self.df_statistics.insert(len(self.df_statistics.columns), "Std (ROI gap radius in microns)", stds_radius)
-            self.df_statistics.insert(len(self.df_statistics.columns), "Gaps number (ROI)", counts)
+            self.df_stats.insert(len(self.df_stats.columns), "Mean (ROI gap area in µm²)", means_intra)
+            self.df_stats.insert(len(self.df_stats.columns), "Std (ROI gap area in µm²)", stds_intra)
+            self.df_stats.insert(len(self.df_stats.columns), "Mean (ROI gap radius in µm)", means_radius_intra)
+            self.df_stats.insert(len(self.df_stats.columns), "Std (ROI gap radius in µm)", stds_radius_intra)
+            self.df_stats.insert(len(self.df_stats.columns), "Gap Circles Count (ROI)", counts_intra)
 
         else:
-            Log.logger.warning("There seems no gap analysis result available.")
+            Log.logger.warning("No gap analysis results. Skipping normalization for gap stats.")
 
         # Add extra info: image resolution
-        image_res = [self.ims_res] * len(self.df_statistics)
-        self.df_statistics.insert(len(self.df_statistics.columns), "Image Res. (microns/pp)", image_res)
+        image_res = [self.ims_res] * len(self.df_stats)
+        self.df_stats.insert(len(self.df_stats.columns), "Image Res. (µm/pixel)", image_res)
 
         # Save to new csv file
-        final_csv = join_path(self.output_folder, 'Quantification_Results.csv')
-        self.df_statistics.to_csv(final_csv, index=False, float_format="%.3f")
+        final_csv = join_path(self.output_folder, 'QuantificationResults.csv')
+        self.df_stats.to_csv(final_csv, index=False, float_format="%.3f")
         Log.logger.info('Statistics have been saved to ' + final_csv)
 
     def normalize_statistics(self):
-        results_csv = join_path(self.output_folder, 'Quantification_Results.csv')
+        results_csv = join_path(self.output_folder, 'QuantificationResults.csv')
         if os.path.exists(results_csv):
             df_results = pd.read_csv(results_csv)
         else:
-            Log.logger.warning(results_csv + " does not exist. Please check if TWOMBLI was run properly.")
+            Log.logger.warning(results_csv + " does not exist. Please check if image quantification was run properly.")
             return
 
         # Normalize fibre area
-        # fibre_area_ratio_wot = df_results['Fibre Area (WIDTH, microns^2)'].values / \
-        #                        df_results['Total Image Area (microns^2)'].values
-        fibre_area_ratio_woroi = df_results['Fibre Area (WIDTH, microns^2)'].values / \
-                                 df_results['Fibre Area (ROI, microns^2)'].values
-        # df_results.insert(df_results.columns.get_loc('Fibre Area (WIDTH, microns^2)') + 1,
-        #                   'Fibre Coverage (WIDTH/Total)', fibre_area_ratio_wot)
+        fibre_area_width = df_results['Fibre Area (WIDTH, µm²)'].values
+        fibre_area_roi = df_results['Fibre Area (ROI, µm²)'].values
+        fibre_area_ratio_woroi = array_divide(fibre_area_width, fibre_area_roi)
         df_results.insert(df_results.columns.get_loc('% WIDTH Area') + 1,
                           'Fibre Coverage (WIDTH/ROI)', fibre_area_ratio_woroi)
 
         # Normalize branch and end points
-        normalised_branchpts = df_results['Branchpoints'].values / df_results['Total Length (microns)'].values
-        df_results.insert(df_results.columns.get_loc('Branchpoints') + 1, 'Normalised Branchpoints',
-                          normalised_branchpts)
-        normalised_endpts = df_results['Endpoints'].values / df_results['Total Length (microns)'].values
-        df_results.insert(df_results.columns.get_loc('Endpoints') + 1, 'Normalised Endpoints', normalised_endpts)
+        total_lengths = df_results['Total Length (µm)'].values
+        branchpoints = df_results['Branchpoints'].values
+        endpoints = df_results['Endpoints'].values
+
+        normalized_branchpts = array_divide(branchpoints, total_lengths)
+        df_results.insert(df_results.columns.get_loc('Branchpoints') + 1,
+                          'Normalized Branchpoints', normalized_branchpts)
+
+        normalized_endpts = array_divide(endpoints, total_lengths)
+        df_results.insert(df_results.columns.get_loc('Endpoints') + 1,
+                          'Normalized Endpoints', normalized_endpts)
 
         # Normalize gap area
-        mean_gap_area_total_norm = df_results['Mean (Total gap area in microns^2)'].values / df_results[
-            'Total Image Area (microns^2)'].values
-        std_gap_area_total_norm = df_results['Std (Total gap area in microns^2)'].values / df_results[
-            'Total Image Area (microns^2)'].values
-        mean_gap_area_roi_norm = df_results['Mean (ROI gap area in microns^2)'].values / df_results[
-            'Fibre Area (ROI, microns^2)'].values
-        std_gap_area_roi_norm = df_results['Std (ROI gap area in microns^2)'].values / df_results[
-            'Fibre Area (ROI, microns^2)'].values
-        df_results.insert(df_results.columns.get_loc('Mean (Total gap area in microns^2)') + 1,
-                          'Normalised Mean (Total gap area)', mean_gap_area_total_norm)
-        df_results.insert(df_results.columns.get_loc('Std (Total gap area in microns^2)') + 1,
-                          'Normalised Std (Total gap area)', std_gap_area_total_norm)
-        df_results.insert(df_results.columns.get_loc('Mean (ROI gap area in microns^2)') + 1,
-                          'Normalised Mean (ROI gap area)', mean_gap_area_roi_norm)
-        df_results.insert(df_results.columns.get_loc('Std (ROI gap area in microns^2)') + 1,
-                          'Normalised Std (ROI gap area)', std_gap_area_roi_norm)
+        if self.args["Quantification"]["Minimum Gap Diameter (pixels)"] > 0:
+            mean_total_area = df_results['Mean (total gap area in µm²)'].values
+            total_image_area = df_results['Total Image Area (µm²)'].values
+            mean_gap_area_total_norm = array_divide(mean_total_area, total_image_area)
 
-        # Normalize gap radius
-        mean_gap_radius_total_norm = df_results['Mean (Total gap radius in microns)'].values / np.sqrt(
-            df_results['Total Image Area (microns^2)'].values)
-        std_gap_radius_total_norm = df_results['Std (Total gap radius in microns)'].values / np.sqrt(
-            df_results['Total Image Area (microns^2)'].values)
-        mean_gap_radius_roi_norm = df_results['Mean (ROI gap radius in microns)'].values / np.sqrt(
-            df_results['Fibre Area (ROI, microns^2)'].values)
-        std_gap_radius_roi_norm = df_results['Std (ROI gap radius in microns)'].values / np.sqrt(
-            df_results['Fibre Area (ROI, microns^2)'].values)
-        df_results.insert(df_results.columns.get_loc('Mean (Total gap radius in microns)') + 1,
-                          'Normalised Mean (Total gap radius)', mean_gap_radius_total_norm)
-        df_results.insert(df_results.columns.get_loc('Std (Total gap radius in microns)') + 1,
-                          'Normalised Std (Total gap radius)', std_gap_radius_total_norm)
-        df_results.insert(df_results.columns.get_loc('Mean (ROI gap radius in microns)') + 1,
-                          'Normalised Mean (ROI gap radius)', mean_gap_radius_roi_norm)
-        df_results.insert(df_results.columns.get_loc('Std (ROI gap radius in microns)') + 1,
-                          'Normalised Std (ROI gap radius)', std_gap_radius_roi_norm)
+            std_total_area = df_results['Std (total gap area in µm²)'].values
+            std_gap_area_total_norm = array_divide(std_total_area, total_image_area)
 
-        # Normalize gap number
-        gap_num_total_norm = df_results['Gaps number (Total)'].values / df_results[
-            'Total Image Area (microns^2)'].values
-        gap_num_roi_norm = df_results['Gaps number (ROI)'].values / df_results['Fibre Area (ROI, microns^2)'].values
-        df_results.insert(df_results.columns.get_loc('Gaps number (Total)') + 1,
-                          'Gap density (Total, number/microns^2)', gap_num_total_norm)
-        df_results.insert(df_results.columns.get_loc('Gaps number (ROI)') + 1,
-                          'Gap density (ROI, number/microns^2)', gap_num_roi_norm)
+            mean_roi_area = df_results['Mean (ROI gap area in µm²)'].values
+            fibre_roi_area = df_results['Fibre Area (ROI, µm²)'].values
+            mean_gap_area_roi_norm = array_divide(mean_roi_area, fibre_roi_area)
+
+            std_roi_area = df_results['Std (ROI gap area in µm²)'].values
+            std_gap_area_roi_norm = array_divide(std_roi_area, fibre_roi_area)
+
+            df_results.insert(df_results.columns.get_loc('Mean (total gap area in µm²)') + 1,
+                              'Normalized Mean (total gap area)', mean_gap_area_total_norm)
+            df_results.insert(df_results.columns.get_loc('Std (total gap area in µm²)') + 1,
+                              'Normalized Std (total gap area)', std_gap_area_total_norm)
+            df_results.insert(df_results.columns.get_loc('Mean (ROI gap area in µm²)') + 1,
+                              'Normalized Mean (ROI gap area)', mean_gap_area_roi_norm)
+            df_results.insert(df_results.columns.get_loc('Std (ROI gap area in µm²)') + 1,
+                              'Normalized Std (ROI gap area)', std_gap_area_roi_norm)
+
+            # Normalize gap radius
+            mean_total_radius = df_results['Mean (total gap radius in µm)'].values
+            mean_gap_radius_total_norm = array_divide(mean_total_radius, np.sqrt(total_image_area))
+            std_total_radius = df_results['Std (total gap radius in µm)'].values
+            std_gap_radius_total_norm = array_divide(std_total_radius, np.sqrt(total_image_area))
+
+            mean_roi_radius = df_results['Mean (ROI gap radius in µm)'].values
+            mean_gap_radius_roi_norm = array_divide(mean_roi_radius, np.sqrt(fibre_roi_area))
+
+            std_roi_radius = df_results['Std (ROI gap radius in µm)'].values
+            std_gap_radius_roi_norm = array_divide(std_roi_radius, np.sqrt(fibre_roi_area))
+
+            df_results.insert(df_results.columns.get_loc('Mean (total gap radius in µm)') + 1,
+                              'Normalized Mean (total gap radius)', mean_gap_radius_total_norm)
+            df_results.insert(df_results.columns.get_loc('Std (total gap radius in µm)') + 1,
+                              'Normalized Std (total gap radius)', std_gap_radius_total_norm)
+            df_results.insert(df_results.columns.get_loc('Mean (ROI gap radius in µm)') + 1,
+                              'Normalized Mean (ROI gap radius)', mean_gap_radius_roi_norm)
+            df_results.insert(df_results.columns.get_loc('Std (ROI gap radius in µm)') + 1,
+                              'Normalized Std (ROI gap radius)', std_gap_radius_roi_norm)
+
+            # Normalize gap number
+            circle_cnt_total = df_results['Gap Circles Count (total)'].values
+            gap_num_total_norm = array_divide(circle_cnt_total, total_image_area)
+
+            circle_cnt_roi = df_results['Gap Circles Count (ROI)'].values
+            gap_num_roi_norm = array_divide(circle_cnt_roi, fibre_roi_area)
+
+            df_results.insert(df_results.columns.get_loc('Gap Circles Count (total)') + 1,
+                              'Gap density (total, µm⁻²)', gap_num_total_norm)
+            df_results.insert(df_results.columns.get_loc('Gap Circles Count (ROI)') + 1,
+                              'Gap density (ROI, µm⁻²)', gap_num_roi_norm)
 
         # Normalize lacunarity, see https://sci-hub.mksa.top/10.1016/j.jsg.2010.08.010
-        ratio = df_results['Total Length (microns)'].values * df_results['Image Res. (microns/pp)'].values / df_results[
-            'Total Image Area (microns^2)'].values
-        normalized_lacunarity = (df_results['Lacunarity'].values - 1) / (1.0 / ratio - 1)
+        ratio = df_results['Total Length (µm)'].values * df_results['Image Res. (µm/pixel)'].values / df_results[
+            'Total Image Area (µm²)'].values
+        normalized_lacunarity = array_divide(
+            df_results['Lacunarity'].values - 1, array_divide(1.0-ratio, ratio))
         df_results.insert(df_results.columns.get_loc('Lacunarity') + 1,
-                          'Normalised Lacunarity', normalized_lacunarity)
+                          'Normalized Lacunarity', normalized_lacunarity)
 
         # if no segmentation is performed, no need to re-calculate statistics
         if not self.args["Initialization"]["Segmentation"]:
@@ -843,10 +858,10 @@ class Cabana:
                 "No segmentation results available. Dropping columns with 'ROI'.")
             df_results.drop(list(df_results.filter(regex="ROI")), axis=1, inplace=True)
 
-        # Save to new csv file
-        final_csv = join_path(self.output_folder, 'Quantification_Results.csv')
+        # save to new csv file
+        final_csv = join_path(self.output_folder, 'QuantificationResults.csv')
         df_results.to_csv(final_csv, index=False, float_format='%.3f')
-        Log.logger.info('Statistics have been normalised and saved to ' + final_csv)
+        Log.logger.info('Statistics have been normalized and saved to ' + final_csv)
 
     def generate_color_maps(self):
         ori_img_paths = get_img_paths(join_path(self.output_folder, "Eligible"))
@@ -903,7 +918,7 @@ class Cabana:
             Image.fromarray(vector_field).save(
                 join_path(self.color_dir, name_wo_ext, name_wo_ext + "_orient_vf_constant.png"))
 
-            color_length = info_color_map(rgb_img, length_map, cbar_label="Length (microns)", cmap="plasma", radius=1)
+            color_length = info_color_map(rgb_img, length_map, cbar_label="Length (µm)", cmap="plasma", radius=1)
             Image.fromarray(color_length).save(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_length.png"))
 
             curve_paths = glob(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Curve_Map *"))
@@ -940,15 +955,15 @@ class Cabana:
 
     def run(self):
         self.initialize_params()
-        self.remove_oversized_imgs()
+        self.remove_large_images()
         self.generate_rois()
 
         if self.args["Initialization"]["Quantification"]:
             self.quantify_images()
             self.visualize_fibres()
             self.calc_fibre_areas()
-            self.gap_analysis()
-            self.intra_gap_analysis()
+            self.analyze_all_gaps()
+            self.analyze_intra_gaps()
             self.combine_statistics()
             self.normalize_statistics()
             self.generate_color_maps()

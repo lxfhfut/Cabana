@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from torch.autograd import Variable
 from skimage.morphology import remove_small_objects, remove_small_holes
 from models import BackBone, LightConv3x3
-from utils import mean_image, cal_greenness, save_result_video
+from utils import mean_image, cal_greenness, save_result_video, read_bar_format
 
 # For reproductivity
 SEED = 0
@@ -98,7 +98,7 @@ def segment_single_image(args):
     all_absolute_greenness = []
     all_relative_greenness = []
     all_thresholded = []
-    pbar = tqdm(range(args.max_iter))
+    pbar = tqdm(range(args.max_iter), bar_format=read_bar_format)
     for batch_idx in pbar:
         optimizer.zero_grad()
         output = model(data)[0]

@@ -11,7 +11,7 @@ from pathlib import Path
 from utils import create_folder, join_path
 from skimage.feature import peak_local_max
 from sklearn.metrics.pairwise import euclidean_distances
-from segmenter import parse_args, segment_single_image, visualize_ridges
+from segmenter import parse_args, segment_single_image, visualize_fibres
 
 from tkinter import *
 from tkinter import filedialog

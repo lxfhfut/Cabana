@@ -8,7 +8,7 @@ import imageio.v3 as iio
 import scipy.ndimage as ndi
 from utils import add_colorbar
 from skimage.morphology import skeletonize, remove_small_holes
-from detector import MSFibreDetector
+from detector import FibreDetector
 from scipy.interpolate import splprep, splev
 
 
@@ -479,7 +479,7 @@ class SkeletonAnalyzer:
         calc_mask = count_map >= 1
         curve_map[calc_mask] /= count_map[calc_mask]
         self.curve_map_all = curve_map
-        self.avg_curve_all = np.mean(curve_map[calc_mask])
+        self.avg_curve_all = np.mean(curve_map[calc_mask]) if calc_mask.any() else 0.0
         # print(f"Mean curvature (win_sz={win_sz}): {np.mean(curve_map[calc_mask])}")
         # self.curve_map_all = add_colorbar(curve_map, clabel="Curvature (degrees)", cmap="inferno")
 
@@ -520,7 +520,7 @@ class SkeletonAnalyzer:
                         angle_diff = 2 * np.pi - angle_diff
                     self.curve_map_long[points[j, 0], points[j, 1]] = np.rad2deg(angle_diff)
                     curvatures.append(np.rad2deg(angle_diff))
-        self.avg_curve_long = np.mean(curvatures)
+        self.avg_curve_long = np.mean(curvatures) if curvatures else 0.0
 
     def points_test(self):
         def get_binary_3x3(img, row, col):
@@ -617,7 +617,8 @@ class SkeletonAnalyzer:
         self.total_length = np.sum(self.pruned_image == self.FOREGROUND)
 
     def calc_growth_unit(self):
-        self.growth_unit = 2.0 * self.total_length / (self.num_tips + self.num_branches)
+        self.growth_unit = 2.0 * self.total_length / (self.num_tips + self.num_branches) \
+            if self.num_tips + self.num_branches > 0 else 0.0
 
     def calc_len_map_all(self):
         self.length_map_all = np.zeros_like(self.pruned_image, dtype=float)
@@ -705,7 +706,11 @@ class SkeletonAnalyzer:
     def calc_lacunarity(self):
         mask_img = np.zeros_like(self.pruned_image)
         mask_img[self.pruned_image == self.FOREGROUND] = 1
-        self.lacunarity = abs(np.var(mask_img.flatten()) / np.mean(mask_img.flatten()) ** 2 - 1.0)
+        if np.count_nonzero(mask_img) == 0:
+            Log.logger.warning("No foreground pixels. Lacunarity cannot be computed meaningfully.")
+            return None
+        else:
+            self.lacunarity = abs(np.var(mask_img.flatten()) / np.mean(mask_img.flatten()) ** 2 - 1.0)
 
     def calc_curve_spline(self, s=3):
         curve_map = np.zeros_like(self.pruned_image, dtype=float)
@@ -733,7 +738,7 @@ class SkeletonAnalyzer:
                     count_map[points[:, 0], points[:, 1]] += 1
         calc_mask = count_map >= 1
         curve_map[calc_mask] /= count_map[calc_mask]
-        self.avg_curve_spline = np.mean(curve_map[calc_mask])
+        self.avg_curve_spline = np.mean(curve_map[calc_mask]) if calc_mask.any() else 0.0
 
     @staticmethod
     def dilate_color(color_image, mask):
@@ -812,13 +817,13 @@ class SkeletonAnalyzer:
 if __name__ == "__main__":
     t1 = time.time()
     img_path = "/Users/lxfhfut/Downloads/1681222495317.jpg"
-    det = MSFibreDetector(line_widths=[11],
-                          low_contrast=100,
-                          high_contrast=200,
-                          dark_line=False,
-                          extend_line=True,
-                          correct_pos=False,
-                          min_len=5)
+    det = FibreDetector(line_widths=[11],
+                        low_contrast=100,
+                        high_contrast=200,
+                        dark_line=False,
+                        extend_line=True,
+                        correct_pos=False,
+                        min_len=5)
     det.detect_lines(img_path)
     print(time.time() - t1)
     det.save_results(save_dir="/Users/lxfhfut/Desktop/img2/", make_binary=True, draw_junc=True, draw_width=True)
