@@ -59,19 +59,19 @@ class OrientationAnalyzer:
 
     def get_orientation_image(self, mask=None):
         mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)
-        orient_image = np.zeros_like(self.gray)
+        orient_image = np.zeros_like(self.gray, dtype=float)
         orient_image[mask] = self.orient[mask]
         return orient_image
 
     def get_coherency_image(self, mask=None):
         mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)
-        coherency_image = np.zeros_like(self.gray)
+        coherency_image = np.zeros_like(self.gray, dtype=float)
         coherency_image[mask] = self.coherency[mask]
         return coherency_image
 
     def get_energy_image(self, mask=None):
         mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)
-        energy_image = np.zeros_like(self.gray)
+        energy_image = np.zeros_like(self.gray, dtype=float)
         energy_image[mask] = self.energy[mask]
         return energy_image
 
@@ -106,11 +106,11 @@ class OrientationAnalyzer:
 
         kl_divergence = np.sum(probabilities * np.log(probabilities / uniform_probabilities))
 
-        return 1.0 / (kl_divergence + 1.0 + np.finfo(float).eps)
+        return 1.0 / (np.sqrt(kl_divergence) + 1.0 + np.finfo(float).eps)
 
     def draw_angular_hist(self, N=8, mask=None):
         mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)
-        fig = Figure(figsize=(4, 4), dpi=300)
+        fig = Figure(figsize=(4, 4), dpi=200)
         ax = fig.add_subplot(polar=True)
 
         # draw right half in [-pi/2, pi/2]
@@ -132,8 +132,8 @@ class OrientationAnalyzer:
         ax.set_xticks([i/4.0*np.pi for i in range(8)])
         ax.set_xticklabels([r'$0$', r'$\frac{\pi}{4}$', r'$\frac{\pi}{2}$', r'$\frac{3\pi}{4}$',
                             r'$\pi$', r'$\frac{5\pi}{4}$', r'$\frac{3\pi}{2}$', r'$\frac{7\pi}{4}$'])
-        ax.tick_params(labelsize=12)
-        ax.set_title('Angular Distribution', pad=-5)
+        ax.tick_params(labelsize=8)
+        ax.set_title('Angular Distribution', pad=-5, fontsize=8)
         # plt.pause(0.1)
         canvas = FigureCanvasAgg(fig)
         canvas.draw()
@@ -201,7 +201,7 @@ class OrientationAnalyzer:
                 )
                 vf = cv2.line(vf, (x1, y1), (x2, y2), color, thickness)
 
-        return cv2.addWeighted(np.atleast_3d(self.image), 0.7, vf, 0.7, 50)
+        return cv2.addWeighted(np.atleast_3d(self.image), 0.7, vf, 0.7, 20)
 
     def draw_color_survey(self, mask=None):
         mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)

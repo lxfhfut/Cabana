@@ -1,4 +1,6 @@
 import os
+import time
+
 import yaml
 import csv
 import cv2
@@ -208,6 +210,7 @@ class Cabana:
     def analyze_orientations(self):
         orient_analyzer = OrientationAnalyzer(2.0)
         alignments = []
+        variances = []
         img_names = []
         Log.logger.info(f"Analyzing orientations for {len(glob(join_path(self.roi_dir, '*.png')))} images.")
         for img_path in tqdm(glob(join_path(self.roi_dir, '*.png')), bar_format=read_bar_format):
@@ -216,7 +219,8 @@ class Cabana:
             name_wo_ext = ori_img_name[:ori_img_name.rindex('.')]
             mask = iio.imread(join_path(self.bin_dir, name_wo_ext[:-4]+"_mask.png"))
             orient_analyzer.compute_orient(img_path)
-            alignments.append(orient_analyzer.mean_coherency(mask))
+            alignments.append(orient_analyzer.mean_coherency(mask=mask))
+            variances.append(orient_analyzer.circular_variance(mask=mask))
 
             # export visualizations to 'Export' folder
             iio.imwrite(join_path(
@@ -241,7 +245,8 @@ class Cabana:
                 orient_analyzer.draw_angular_hist(mask=mask))
 
         data = {'Image': img_names,
-                'Alignment': alignments}
+                'Orient. Alignment': alignments,
+                'Orient. Variance': variances}
         df_orient = pd.DataFrame(data)
         self.df_stats = self.df_stats.merge(df_orient, on="Image")
 
@@ -340,7 +345,8 @@ class Cabana:
             mask_path = join_path(self.mask_dir, os.path.splitext(img_name)[0] + '_roi.png')
             img = cv2.imread(img_path)
             mask = cv2.imread(mask_path)
-            visualize_fibres(img, mask, join_path(self.fibre_dir, os.path.splitext(img_name)[0] + '_fibres.png'), thickness)
+            visualize_fibres(img, mask,
+                             join_path(self.fibre_dir, os.path.splitext(img_name)[0] + '_fibres.png'), thickness)
 
     def calc_fibre_areas(self):
         img_paths = glob(join_path(self.bin_dir, '*.png'))
@@ -410,7 +416,7 @@ class Cabana:
             names, means, stds, percentile5, median, percentile95, counts = [], [], [], [], [], [], []
             for img_path in img_paths:
                 min_gap_radius = min_gap_diameter / 2
-                min_dist = int(np.max([1, min_gap_radius // 2]))
+                min_dist = int(np.max([1, min_gap_radius]))
                 img = cv2.imread(img_path, 0)
                 mask = img.copy()
 
@@ -418,9 +424,16 @@ class Cabana:
                 mask[0, :] = mask[-1, :] = mask[:, :1] = mask[:, -1:] = 0
 
                 final_circles = []
+                downsample_factor = 2
                 while True:
                     dist_map = cv2.distanceTransform(mask, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
-                    centers = peak_local_max(dist_map, min_distance=min_dist, exclude_border=False)
+
+                    # downsample distance map and upscale detected centers to original image size
+                    dist_map_downscaled = cv2.resize(dist_map, None, fx=1/downsample_factor, fy=1/downsample_factor)
+                    centers_downscaled = peak_local_max(dist_map_downscaled, min_distance=min_dist, exclude_border=False)
+                    centers = centers_downscaled * downsample_factor
+
+                    # centers = peak_local_max(dist_map, min_distance=min_dist, exclude_border=False)
                     radius = dist_map[centers[:, 0], centers[:, 1]]
 
                     eligible_centers = centers[radius > min_gap_radius, :]
@@ -618,8 +631,8 @@ class Cabana:
             self.df_stats['% HDM Area'] * self.df_stats['Total Image Area (µm²)'])
         total_area = self.df_stats.loc[:, 'Total Image Area (µm²)'].tolist()
         total_length = self.df_stats.loc[:, 'Total Length (µm)'].tolist()
-        num_endpoints = self.df_stats.loc[:, 'Endpoints'].tolist()
-        num_branchpoints = self.df_stats.loc[:, 'Branchpoints'].tolist()
+        # num_endpoints = self.df_stats.loc[:, 'Endpoints'].tolist()
+        # num_branchpoints = self.df_stats.loc[:, 'Branchpoints'].tolist()
 
         # avg_length = []
         # for l, e, b in zip(total_length, num_endpoints, num_branchpoints):
@@ -858,8 +871,8 @@ class Cabana:
 
     def generate_color_maps(self):
         ori_img_paths = get_img_paths(join_path(self.output_folder, "Eligible"))
-
-        for ori_img_path in ori_img_paths:
+        Log.logger.info(f'Generating color maps for {len(ori_img_paths)} images.')
+        for ori_img_path in tqdm(ori_img_paths, bar_format=read_bar_format):
             ori_img_name = os.path.basename(ori_img_path)
             name_wo_ext = ori_img_name[:ori_img_name.rindex('.')] + "_roi"
 
@@ -900,21 +913,10 @@ class Cabana:
                 join_path(self.color_dir, name_wo_ext,
                           name_wo_ext + "_color_coherency.png"), cbar_label="Coherency")
 
-            vector_field = orient_vf(rgb_img, orient_map, cohere_map)
-            Image.fromarray(vector_field).save(
-                join_path(self.color_dir, name_wo_ext, name_wo_ext + "_orient_vf_wgts_coherency.png"))
-
-            vector_field = orient_vf(rgb_img, orient_map, energy_map)
-            Image.fromarray(vector_field).save(
-                join_path(self.color_dir, name_wo_ext, name_wo_ext + "_orient_vf_wgts_energy.png"))
-            vector_field = orient_vf(rgb_img, orient_map, None)
-            Image.fromarray(vector_field).save(
-                join_path(self.color_dir, name_wo_ext, name_wo_ext + "_orient_vf_constant.png"))
-
             color_length = info_color_map(rgb_img, length_map, cbar_label="Length (µm)", cmap="plasma", radius=1)
             Image.fromarray(color_length).save(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_length.png"))
 
-            curve_paths = glob(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Curve_Map *"))
+            curve_paths = glob(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Curve_Map_*"))
             for curve_path in curve_paths:
                 curve_name_wo_ext = os.path.basename(curve_path)[:-4]
                 suffix = curve_name_wo_ext[len(name_wo_ext + "_Curve_Map"):]

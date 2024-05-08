@@ -88,12 +88,12 @@ class Log:
                                           int(t_list[2]))
                     now = datetime.datetime(int(now_list[0]), int(now_list[1]), int(now_list[2]))
                     if (now - t).days > 30:  # longer than 30 days
-                        self.delete_logs(file_path)
+                        self.delete_logs()
                 if len(file_list) > 30:  # log file number larger than 30
                     file_list = file_list[0:-4]
                     for i in file_list:
                         file_path = os.path.join(dir_path, i)
-                        print(file_path)
+                        print(f"Deleting {file_path}")
                         self.delete_logs(file_path)
 
     def log_parameters(self, param_path):
@@ -109,9 +109,9 @@ class Log:
             str_footer = '*' * ((len(str_header) - 3) // 2) + "End" + '*' * ((len(str_header) - 3) // 2)
             self.logger.info(str_footer)
 
-    def delete_logs(self):
+    def delete_logs(self, file_path):
         try:
-            os.remove(self.log_path)
+            os.remove(file_path)
         except PermissionError as e:
             Log().warning('Failed to delete log file：{}'.format(e))
 
