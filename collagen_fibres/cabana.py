@@ -145,7 +145,7 @@ class Cabana:
     def generate_rois(self):
         img_paths = get_img_paths(self.input_folder)
         img_paths.sort()
-        if self.args["Initialization"]["Segmentation"]:
+        if self.args["Configs"]["Segmentation"]:
             Log.logger.info('Segmenting {} images in {}'.format(len(img_paths), self.input_folder))
             for img_path in img_paths:
                 setattr(self.seg_args, 'input', img_path)
@@ -394,13 +394,9 @@ class Cabana:
             Log.logger.info('Areas have been saved in {}'.format(join_path(self.bin_dir, 'ResultsROI.csv')))
 
     def analyze_all_gaps(self):
-        min_gap_diameter = -1
-        if "Minimum Gap Diameter (pixels)" in self.args["Quantification"].keys():
-            min_gap_diameter = self.args["Quantification"]["Minimum Gap Diameter (pixels)"]
-        if min_gap_diameter == -1:
-            Log.logger.warning("'Minimum Gap Diameter can not be found in {}.".format(self.param_file))
-        elif min_gap_diameter == 0:
-            Log.logger.warning("Skipping gap analysis.")
+        min_gap_diameter = self.args["Gap Analysis"]["Minimum Gap Diameter (pixels)"]
+        if min_gap_diameter == 0:
+            Log.logger.warning("minimum gap diameter = 0 pixels. Skipping gap analysis.")
             return
         else:
             Log.logger.info(
@@ -502,14 +498,14 @@ class Cabana:
         Log.logger.info('Performing intra gap analysis for {} images'.format(len(img_paths)))
         for img_path in img_paths:
             base_name = os.path.basename(img_path)[:-9]
-            binary_mask = cv2.imread(img_path, 0)
-            img_fibre = cv2.imread(join_path(self.mask_dir, base_name + '_roi.png'), 0)
-            color_img_fibre = cv2.cvtColor(img_fibre, cv2.COLOR_GRAY2BGR)
             csv_file_path = join_path(gap_result_dir, 'IndividualGaps_' + base_name + '_roi.csv')
             if not os.path.exists(csv_file_path):
                 continue
 
             df_circles = pd.read_csv(csv_file_path)
+            binary_mask = cv2.imread(img_path, 0)
+            img_fibre = cv2.imread(join_path(self.mask_dir, base_name + '_roi.png'), 0)
+            color_img_fibre = cv2.cvtColor(img_fibre, cv2.COLOR_GRAY2BGR)
             areas = []
             circle_cnt = 0
             for index, row in df_circles.iterrows():
@@ -793,7 +789,7 @@ class Cabana:
                           'Endpoints Density (µm⁻¹)', endpoints_density)
 
         # Normalize gap area
-        if self.args["Quantification"]["Minimum Gap Diameter (pixels)"] > 0:
+        if self.args["Configs"]["Gap Analysis"] and self.args["Gap Analysis"]["Minimum Gap Diameter (pixels)"] > 0:
             mean_total_area = df_results['Mean (All gaps area in µm²)'].values
             total_image_area = df_results['Total Image Area (µm²)'].values
             mean_gap_area_total_norm = array_divide(mean_total_area, total_image_area)
@@ -859,7 +855,7 @@ class Cabana:
                           'Normalized Lacunarity', normalized_lacunarity)
 
         # if no segmentation is performed, no need to re-calculate statistics
-        if not self.args["Initialization"]["Segmentation"]:
+        if not self.args["Configs"]["Segmentation"]:
             Log.logger.info(
                 "No segmentation results available. Dropping columns with 'ROI'.")
             df_results.drop(list(df_results.filter(regex="ROI")), axis=1, inplace=True)
@@ -953,12 +949,13 @@ class Cabana:
         self.remove_large_images()
         self.generate_rois()
 
-        if self.args["Initialization"]["Quantification"]:
+        if self.args["Configs"]["Quantification"]:
             self.quantify_images()
             self.visualize_fibres()
             self.calc_fibre_areas()
-            self.analyze_all_gaps()
-            self.analyze_intra_gaps()
+            if self.args["Configs"]["Gap Analysis"]:
+                self.analyze_all_gaps()
+                self.analyze_intra_gaps()
             self.combine_statistics()
             self.normalize_statistics()
             self.generate_color_maps()
