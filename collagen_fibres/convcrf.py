@@ -90,14 +90,12 @@ test_config = {
     "unary_weight": 1,
     "weight_init": 0.5,
     'convcomp': False,
-
     'trainable': False,
     'convcomp': False,
     "logsoftmax": True,  # use logsoftmax for numerical stability
     "softmax": True,
     'final_softmax': False,
     "pyinn": False,
-
     'pos_feats': {
         'sdims': 1.5,
         'compat': 3,
@@ -520,7 +518,7 @@ class ConvCRF(nn.Module):
 
         if self.use_gpu:
             if not torch.cuda.is_available():
-                logging.error("GPU mode requested but not avaible.")
+                logging.error("GPU mode requested but not available.")
                 logging.error("Please run using use_gpu=False.")
                 raise ValueError
 

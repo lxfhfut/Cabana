@@ -245,7 +245,7 @@ class Cabana:
             mask_path = join_path(self.mask_dir, img_name[:-4] + '_roi.png')
             img = cv2.imread(img_path)
             mask = cv2.imread(mask_path)
-            visualize_ridges(img, mask, join_path(self.ridge_dir, img_name[:-4] + '_ridges.png'), thickness)
+            visualize_fibres(img, mask, join_path(self.ridge_dir, img_name[:-4] + '_ridges.png'), thickness)
 
     def calc_fibre_areas(self):
         img_paths = glob(join_path(self.bin_dir, '*.png'))

@@ -10,7 +10,7 @@ import pandas as pd
 
 
 class HDM:
-    def __init__(self, max_hdm=220, sat_ratio=0.1, dark_line=False):
+    def __init__(self, max_hdm=220, sat_ratio=0, dark_line=False):
         self.max_hdm = max_hdm
         self.sat_ratio = sat_ratio
         self.dark_line = dark_line
@@ -45,14 +45,14 @@ class HDM:
         image = raw_image if raw_image.dtype == np.uint8 else cv2.normalize(raw_image, None, 0, 255, cv2.NORM_MINMAX)
         image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) if len(image.shape) == 3 else image
 
-        if self.dark_line:
-            image = 255 - image
-
         image = np.clip(image, 0, self.max_hdm).astype(float)
         image = ((image - image.min()) / (image.max() - image.min() + np.finfo(float).eps) * 255).astype(np.uint8)
         percent_saturation = self.sat_ratio * 100
         pl, pu = np.percentile(image, (percent_saturation/2.0, 100-percent_saturation/2.0))
         enhanced_image = exposure.rescale_intensity(image, in_range=(pl, pu))
+
+        if self.dark_line:
+            enhanced_image = 255 - enhanced_image
 
         return enhanced_image.astype(np.uint8)
 

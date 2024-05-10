@@ -211,57 +211,80 @@ class Cabana:
         orient_analyzer = OrientationAnalyzer(2.0)
         alignments = []
         variances = []
+        alignments_roi = []
+        variances_roi = []
+        alignments_hdm = []
+        variances_hdm = []
+        alignments_width = []
+        variances_width = []
         img_names = []
         Log.logger.info(f"Analyzing orientations for {len(glob(join_path(self.roi_dir, '*.png')))} images.")
         for img_path in tqdm(glob(join_path(self.roi_dir, '*.png')), bar_format=read_bar_format):
             ori_img_name = os.path.basename(img_path)
             img_names.append(ori_img_name)
             name_wo_ext = ori_img_name[:ori_img_name.rindex('.')]
-            mask = iio.imread(join_path(self.bin_dir, name_wo_ext[:-4]+"_mask.png"))
+            mask_roi = iio.imread(join_path(self.bin_dir, name_wo_ext[:-4]+"_mask.png"))
+            mask_hdm = (iio.imread(join_path(self.hdm_dir, name_wo_ext[:-4]+"_roi.png")) > 0).astype(np.uint8)*255
+            mask_width = 255 - iio.imread(join_path(self.export_dir, name_wo_ext[:-4]+"_roi", name_wo_ext[:-4]+"_roi_Width.png"))
             orient_analyzer.compute_orient(img_path)
-            alignments.append(orient_analyzer.mean_coherency(mask=mask))
-            variances.append(orient_analyzer.circular_variance(mask=mask))
+            alignments.append(orient_analyzer.mean_coherency())
+            variances.append(orient_analyzer.circular_variance())
+            alignments_roi.append(orient_analyzer.mean_coherency(mask=mask_roi))
+            variances_roi.append(orient_analyzer.circular_variance(mask=mask_roi))
+            alignments_hdm.append(orient_analyzer.mean_coherency(mask=mask_hdm))
+            variances_hdm.append(orient_analyzer.circular_variance(mask=mask_hdm))
+            alignments_width.append(orient_analyzer.mean_coherency(mask=mask_width))
+            variances_width.append(orient_analyzer.circular_variance(mask=mask_width))
 
             # export visualizations to 'Export' folder
             iio.imwrite(join_path(
                 self.export_dir, name_wo_ext, name_wo_ext + "_Energy.tif"),
-                orient_analyzer.get_energy_image(mask))
+                orient_analyzer.get_energy_image())
             iio.imwrite(join_path(
                 self.export_dir, name_wo_ext, name_wo_ext + "_Coherency.tif"),
-                orient_analyzer.get_orientation_image(mask))
+                orient_analyzer.get_orientation_image())
             iio.imwrite(join_path(
                 self.export_dir, name_wo_ext, name_wo_ext + "_Orientation.tif"),
-                orient_analyzer.get_orientation_image(mask))
+                orient_analyzer.get_orientation_image())
             iio.imwrite(join_path(
                 self.export_dir, name_wo_ext, name_wo_ext + "_Color_Survey.tif"),
-                orient_analyzer.draw_color_survey(mask))
+                orient_analyzer.draw_color_survey())
 
             # export vector fields and angular hists to 'Color' folder
             iio.imwrite(join_path(
                 self.color_dir, name_wo_ext, name_wo_ext + "_orient_vf.png"),
-                orient_analyzer.draw_vector_field(mask/255.0))
+                orient_analyzer.draw_vector_field(mask_roi/255.0))
             iio.imwrite(join_path(
                 self.color_dir, name_wo_ext, name_wo_ext + "_angular_hist.png"),
-                orient_analyzer.draw_angular_hist(mask=mask))
+                orient_analyzer.draw_angular_hist(mask=mask_roi))
 
         data = {'Image': img_names,
                 'Orient. Alignment': alignments,
-                'Orient. Variance': variances}
+                'Orient. Variance': variances,
+                'Orient. Alignment (ROI)': alignments_roi,
+                'Orient. Variance (ROI)': variances_roi,
+                'Orient. Alignment (HDM)': alignments_hdm,
+                'Orient. Variance (HDM)': variances_hdm,
+                'Orient. Alignment (WIDTH)': alignments_width,
+                'Orient. Variance (WIDTH)': variances_width
+                }
         df_orient = pd.DataFrame(data)
         self.df_stats = self.df_stats.merge(df_orient, on="Image")
 
     def quantify_skeletons(self):
-        min_skel_size = round(self.args["Quantification"]["Minimum Skeleton Size (µm)"] / self.ims_res)
-        min_branch_len = round(self.args["Quantification"]["Minimum Branch Length (µm)"] / self.ims_res)
-        min_hole_area = round(self.args["Quantification"]["Minimum Hole Area (µm²)"] / self.ims_res ** 2)
-        min_curve_win = self.args["Quantification"]["Minimum Curvature Window (µm)"]
-        max_curve_win = self.args["Quantification"]["Maximum Curvature Window (µm)"]
-        curve_win_step = self.args["Quantification"]["Curvature Window Step (µm)"]
+        min_skel_size = int(self.args["Quantification"]["Minimum Skeleton Size"])
+        min_branch_len = int(self.args["Quantification"]["Minimum Branch Length"])
+        min_hole_area = int(self.args["Quantification"]["Minimum Hole Area"])
+        min_curve_win = int(self.args["Quantification"]["Minimum Curvature Window"])
+        max_curve_win = int(self.args["Quantification"]["Maximum Curvature Window"])
+        curve_win_step = int(self.args["Quantification"]["Curvature Window Step"])
 
-        Log.logger.info(f"min skeleton size = {min_skel_size} px, "
-                        f"min branch length = {min_branch_len} px, "
-                        f"min hole area = {min_hole_area} px²")
-        # fibre detection returns fibres in black color, so dark_line is set to "True" for skeleton analysis
+        Log.logger.info(f"min skeleton size={min_skel_size} px, "
+                        f"min branch length={min_branch_len} px, "
+                        f"min hole area={min_hole_area} px²")
+
+        # fibre detection returns fibres in black color,
+        # so dark_line is set to "True" for skeleton analysis
         skel_analyzer = SkeletonAnalyzer(skel_thresh=min_skel_size,
                                          branch_thresh=min_branch_len,
                                          hole_threshold=min_hole_area,
@@ -270,7 +293,7 @@ class Cabana:
         proj_areas, lacunarities, total_lengths, frac_dims, total_areas = [], [], [], [], []
         curvatures = {}
         for win_sz in np.arange(min_curve_win, max_curve_win + curve_win_step, curve_win_step):
-            curvatures[f"Curvature (win_sz={win_sz:.0f}µm)"] = []
+            curvatures[f"Curvature (win_sz={win_sz})"] = []
 
         Log.logger.info(f"Quantifying skeletons for {len(glob(join_path(self.mask_dir, '*.png')))} images.")
         for img_path in tqdm(glob(join_path(self.mask_dir, '*.png')), bar_format=read_bar_format):
@@ -299,10 +322,10 @@ class Cabana:
 
             # calculate curvatures for various window sizes
             for win_sz in np.arange(min_curve_win, max_curve_win + curve_win_step, curve_win_step):
-                skel_analyzer.calc_curve_all(round(win_sz / self.ims_res))
-                curvatures[f"Curvature (win_sz={win_sz:.0f}µm)"].append(skel_analyzer.avg_curve_all)
+                skel_analyzer.calc_curve_all(win_sz)
+                curvatures[f"Curvature (win_sz={win_sz})"].append(skel_analyzer.avg_curve_all)
                 iio.imwrite(join_path(
-                    self.export_dir, name_wo_ext, f"{name_wo_ext}_Curve_Map_{win_sz:.0f}.tif"),
+                    self.export_dir, name_wo_ext, f"{name_wo_ext}_Curve_Map_{win_sz}.tif"),
                     skel_analyzer.curve_map_all)
 
         data = {'Image': img_names,
@@ -323,8 +346,9 @@ class Cabana:
         Log.logger.info(f"Quantifying High Density Matrix (HDM) areas for "
                         f"{len(glob(join_path(self.eligible_dir, '*.png')))} images.")
         max_hdm = self.args["Quantification"]["Maximum Display HDM"],
+        sat_ratio = self.args["Quantification"]["Contrast Enhancement"]
         dark_line = self.args["Detection"]["Dark Line"]
-        hdm = HDM(max_hdm=max_hdm, sat_ratio=0.1, dark_line=dark_line)
+        hdm = HDM(max_hdm=max_hdm, sat_ratio=sat_ratio, dark_line=dark_line)
         hdm.quantify_black_space(self.eligible_dir, self.hdm_dir, ext=".png")
         self.df_stats = hdm.df_hdm
 
@@ -394,7 +418,7 @@ class Cabana:
             Log.logger.info('Areas have been saved in {}'.format(join_path(self.bin_dir, 'ResultsROI.csv')))
 
     def analyze_all_gaps(self):
-        min_gap_diameter = self.args["Gap Analysis"]["Minimum Gap Diameter (pixels)"]
+        min_gap_diameter = self.args["Gap Analysis"]["Minimum Gap Diameter"]
         if min_gap_diameter == 0:
             Log.logger.warning("minimum gap diameter = 0 pixels. Skipping gap analysis.")
             return
@@ -789,7 +813,7 @@ class Cabana:
                           'Endpoints Density (µm⁻¹)', endpoints_density)
 
         # Normalize gap area
-        if self.args["Configs"]["Gap Analysis"] and self.args["Gap Analysis"]["Minimum Gap Diameter (pixels)"] > 0:
+        if self.args["Configs"]["Gap Analysis"] and self.args["Gap Analysis"]["Minimum Gap Diameter"] > 0:
             mean_total_area = df_results['Mean (All gaps area in µm²)'].values
             total_image_area = df_results['Total Image Area (µm²)'].values
             mean_gap_area_total_norm = array_divide(mean_total_area, total_image_area)

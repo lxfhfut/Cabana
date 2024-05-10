@@ -87,7 +87,7 @@ class SkeletonAnalyzer:
                 Log.logger.warning("Isolated point found. Ignored!")
                 return lengths_paths
             elif len(end_points) > 2:
-                Log.logger.warning("More than 2 points for a branch. Ignored!")
+                Log.logger.warning("A branch with more than 2 points was ignored!")
                 return lengths_paths
             else:
                 stack = [(end_points[0], 0, [end_points[0]])]
@@ -748,6 +748,7 @@ class SkeletonAnalyzer:
         dilated_mask = cv2.dilate(mask, kernel, iterations=1)
 
         # Compute the distance transform
+
         dist_transform = cv2.distanceTransform(255 - mask, cv2.DIST_L2, 5)
         # Get the nearest pixel coordinates from the non-dilated areas
         nearest_idx = np.round(np.argwhere(dist_transform == 0))
@@ -789,7 +790,7 @@ class SkeletonAnalyzer:
         self.skel_image = (skeleton * self.FOREGROUND).astype(np.uint8)
         self.construct_graphs()
         self.draw_key_points()
-        self.calc_len_map_long()
+        # self.calc_len_map_long()
         self.calc_len_map_all()
         self.calc_total_len()
         self.calc_proj_area()

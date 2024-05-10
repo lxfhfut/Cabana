@@ -1,5 +1,5 @@
 import os
-os.environ['NUMEXPR_MAX_THREADS'] = '12'
+# os.environ['NUMEXPR_MAX_THREADS'] = '12'
 import cv2
 import csv
 import imutils
@@ -12,15 +12,14 @@ from tqdm import tqdm
 from skimage import measure
 import torch.optim as optim
 from log import Log
-import matplotlib.pyplot as plt
 from torch.autograd import Variable
 from skimage.morphology import remove_small_objects, remove_small_holes
 from models import BackBone, LightConv3x3
 from utils import mean_image, cal_greenness, save_result_video, read_bar_format
 
 # For reproductivity
-SEED = 0
-torch.use_deterministic_algorithms(True)
+# SEED = 0
+# torch.use_deterministic_algorithms(True)
 
 
 def parse_args():
@@ -57,8 +56,8 @@ def parse_args():
 
 def segment_single_image(args):
     # Ensure the segmentation result for the same image (e.g. with different names) to be the same
-    torch.manual_seed(SEED)
-    torch.cuda.manual_seed(SEED)
+    # torch.manual_seed(SEED)
+    # torch.cuda.manual_seed(SEED)
 
     ori_img = cv2.imread(args.input)
     img_name = os.path.splitext(os.path.basename(args.input))[0]
@@ -76,7 +75,11 @@ def segment_single_image(args):
 
     config = convcrf.default_conf
     config['filter_size'] = args.sz_filter
-    gausscrf = convcrf.GaussCRF(conf=config, shape=img_size, nclasses=args.num_channels, use_gpu=True)
+
+    gausscrf = convcrf.GaussCRF(conf=config,
+                                shape=img_size,
+                                nclasses=args.num_channels,
+                                use_gpu=torch.cuda.is_available())
 
     model = BackBone([LightConv3x3], [2], [args.num_channels // 2, args.num_channels])
     if torch.cuda.is_available():
