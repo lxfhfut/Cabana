@@ -12,18 +12,38 @@ from utils import (LinesUtil, Junction, Crossref, Line, convolve_gauss,
 
 
 class FibreDetector:
+    """
+    FibreDetector class to detect fibres (as ridges) in images.
+    """
     def __init__(self,
-                 line_widths=5,
+                 line_widths=[3, 5],
                  low_contrast=100,
                  high_contrast=200,
-                 gamma=1.9,
+                 gamma=2.0,
                  min_len=5,
                  max_len=0,
                  dark_line=True,
                  correct_pos=False,
                  estimate_width=True,
                  extend_line=False):
-        self.line_widths = np.array([line_widths]) if np.isscalar(line_widths) else np.array(line_widths)
+
+        '''
+        :param line_widths (int or array): range of widths of fibres to be detected.
+        :param low_contrast (int): lower contrast threshold for ridge detection.
+                                   Contrast is measured by the difference between the fibre pixels and background.
+                                   Reduce this threshold if you see many miss-detected fibres or the fibres are not
+                                   too bright compared to background pixels.
+        :param high_contrast (int): high contrast threshold for ridge detection.
+        :param gamma: gamma value
+        :param min_len:
+        :param max_len:
+        :param dark_line:
+        :param correct_pos:
+        :param estimate_width:
+        :param extend_line:
+        '''
+
+        # self.line_widths = np.array([line_widths]) if np.isscalar(line_widths) else np.array(line_widths)
         self.low_contrast = low_contrast
         self.high_contrast = high_contrast
         self.min_len = min_len
@@ -32,7 +52,21 @@ class FibreDetector:
         self.correct_pos = correct_pos
         self.estimate_width = estimate_width
         self.extend_line = extend_line
-        self.sigmas = self.line_widths / (2 * np.sqrt(3)) + 0.5
+
+        if np.isscalar(line_widths):
+            line_widths = [line_widths, line_widths]
+        elif len(line_widths) == 1:
+            line_widths = [line_widths[0], line_widths[0]]
+        elif len(line_widths) > 2:
+            print(
+                'Warning: line_widths must be a scalar or a list of length 2. Only the first two values will be used.')
+            line_widths = line_widths[:2]
+
+        min_sigma, max_sigma = [lw / (2 * np.sqrt(3)) + 0.5 for lw in line_widths]
+
+        self.sigmas = np.array(
+            [min_sigma * (1.3 ** i) for i in range(int(np.log(max_sigma / min_sigma) / np.log(1.3)) + 1)])
+        # self.sigmas = self.line_widths / (2 * np.sqrt(3)) + 0.5
         self.clow = self.low_contrast
         self.chigh = self.high_contrast
         if self.dark_line:

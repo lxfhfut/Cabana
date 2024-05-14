@@ -169,14 +169,15 @@ class Cabana:
         correct_pos = self.args["Detection"]["Correct Position"]
         min_line_width = self.args["Detection"]["Min Line Width"]
         max_line_width = self.args["Detection"]["Max Line Width"]
-        line_width_step = self.args["Detection"]["Line Width Step"]
-        line_widths = np.arange(min_line_width, max_line_width + line_width_step, line_width_step)
+        # line_width_step = self.args["Detection"]["Line Width Step"]
+        # line_widths = np.arange(min_line_width, max_line_width + line_width_step, line_width_step)
         low_contrast = self.args["Detection"]["Low Contrast"]
         high_contrast = self.args["Detection"]["High Contrast"]
         min_len = self.args["Detection"]["Minimum Branch Length"]
-        Log.logger.info(f"Detecting fibres with line widths: {line_widths} pixels "
+        Log.logger.info(f"Detecting fibres with line widths in "
+                        f"[{min_line_width}, {max_line_width}] pixels "
                         f"for {len(glob(join_path(self.roi_dir, '*.png')))} images.")
-        det = FibreDetector(line_widths=line_widths,
+        det = FibreDetector(line_widths=[min_line_width, max_line_width],
                             low_contrast=low_contrast,
                             high_contrast=high_contrast,
                             dark_line=dark_line,
@@ -519,6 +520,7 @@ class Cabana:
         img_paths.sort()
 
         names, means, stds, means_radius, stds_radius, counts = [], [], [], [], [], []
+        medians, medians_radius, pct5, pct95, pct5_radius, pct95_radius = [], [], [], [], [], []
         Log.logger.info('Performing intra gap analysis for {} images'.format(len(img_paths)))
         for img_path in img_paths:
             base_name = os.path.basename(img_path)[:-9]
@@ -548,22 +550,40 @@ class Cabana:
             if len(areas) > 0:
                 means.append(np.mean(areas))
                 stds.append(np.std(areas))
+                medians.append(np.median(areas))
+                pct5.append(np.percentile(areas, 5))
                 means_radius.append(np.mean(radius))
+                pct95.append(np.percentile(areas, 95))
                 stds_radius.append(np.std(radius))
+                pct5_radius.append(np.percentile(radius, 5))
+                medians_radius.append(np.median(radius))
+                pct95_radius.append(np.percentile(radius, 95))
                 counts.append(circle_cnt)
             else:
                 means.append(0)
                 stds.append(0)
+                pct5.append(0)
+                medians.append(0)
+                pct95.append(0)
                 means_radius.append(0)
                 stds_radius.append(0)
+                pct5_radius.append(0)
+                medians_radius.append(0)
+                pct95_radius.append(0)
                 counts.append(0)
 
         if names:
             data = {'Image': names,
                     'Mean (ROI gaps area in µm²)': means,
                     'Std (ROI gaps area in µm²)': stds,
+                    'Percentile5 (ROI gaps area in µm²)': pct5,
+                    'Median (ROI gaps area in µm²)': medians,
+                    'Percentile95 (ROI gaps area in µm²)': pct95,
                     'Mean (ROI gaps radius in µm)': means_radius,
                     'Std (ROI gaps radius in µm)': stds_radius,
+                    'Percentile5 (ROI gaps radius in µm)': pct5_radius,
+                    'Median (ROI gaps radius in µm)': medians_radius,
+                    'Percentile95 (ROI gaps radius in µm)': pct95_radius,
                     'Gap Circles Count (ROI)': counts}
             df = pd.DataFrame(data)
             df.to_csv(join_path(gap_result_dir, 'IntraGapAnalysisSummary.csv'), index=False)
@@ -715,10 +735,14 @@ class Cabana:
         move_column_inplace(self.df_stats, "Mean Fibre Intensity (WIDTH)",
                             self.df_stats.columns.get_loc("Avg Thickness (WIDTH, µm)") + 1)
 
-        means_intra, stds_intra, means_radius_intra, stds_radius_intra, counts_intra = [], [], [], [], []
+        means_intra, stds_intra, medians_intra, means_radius_intra, \
+            stds_radius_intra, medians_radius_intra, counts_intra, \
+            pct5_intra, pct95_intra, pct5_radius_intra, pct95_radius_intra = [], [], [], [], [], [], [], [], [], [], []
         intra_gaps_csv = join_path(self.output_folder, 'Masks', 'GapAnalysis', 'IntraGapAnalysisSummary.csv')
 
-        means_total, stds_total, means_radius_total, stds_radius_total, counts_total = [], [], [], [], []
+        means_total, stds_total, medians_total, means_radius_total, \
+            stds_radius_total, medians_radius_total, counts_total, \
+            pct5_total, pct95_total, pct5_radius_total, pct95_radius_total = [], [], [], [], [], [], [], [], [], [], []
         gap_summary_file = os.path.join(self.output_folder, 'Masks', 'GapAnalysis', 'GapAnalysisSummary.csv')
 
         if os.path.exists(gap_summary_file) and os.path.exists(intra_gaps_csv):
@@ -735,41 +759,77 @@ class Cabana:
                     gaps_intra_row = df_gaps_intra[df_gaps_intra['Image'] == img_name].iloc[0]
                     means_intra.append(gaps_intra_row['Mean (ROI gaps area in µm²)'])
                     stds_intra.append(gaps_intra_row['Std (ROI gaps area in µm²)'])
+                    medians_intra.append(gaps_intra_row['Median (ROI gaps area in µm²)'])
+                    pct5_intra.append(gaps_intra_row['Percentile5 (ROI gaps area in µm²)'])
+                    pct95_intra.append(gaps_intra_row['Percentile95 (ROI gaps area in µm²)'])
                     means_radius_intra.append(gaps_intra_row['Mean (ROI gaps radius in µm)'])
                     stds_radius_intra.append(gaps_intra_row['Std (ROI gaps radius in µm)'])
+                    medians_radius_intra.append(gaps_intra_row['Median (ROI gaps radius in µm)'])
+                    pct5_radius_intra.append(gaps_intra_row['Percentile5 (ROI gaps radius in µm)'])
+                    pct95_radius_intra.append(gaps_intra_row['Percentile95 (ROI gaps radius in µm)'])
                     counts_intra.append(gaps_intra_row['Gap Circles Count (ROI)'])
 
                     gaps_total_row = df_gaps_total[df_gaps_total['Image'] == img_name].iloc[0]
                     means_total.append(gaps_total_row['Mean (All gaps area in µm²)'])
                     stds_total.append(gaps_total_row['Std (All gaps area in µm²)'])
+                    medians_total.append(gaps_total_row['Median (All gaps area in µm²)'])
+                    pct5_total.append(gaps_total_row['Percentile5 (All gaps area in µm²)'])
+                    pct95_total.append(gaps_total_row['Percentile95 (All gaps area in µm²)'])
                     means_radius_total.append(np.sqrt(gaps_total_row['Mean (All gaps area in µm²)'] / np.pi))
                     stds_radius_total.append(np.sqrt(gaps_total_row['Std (All gaps area in µm²)'] / np.pi))
+                    medians_radius_total.append(np.sqrt(gaps_total_row['Median (All gaps area in µm²)'] / np.pi))
+                    pct5_radius_total.append(np.sqrt(gaps_total_row['Percentile5 (All gaps area in µm²)'] / np.pi))
+                    pct95_radius_total.append(np.sqrt(gaps_total_row['Percentile95 (All gaps area in µm²)'] / np.pi))
                     counts_total.append(gaps_total_row['Gap Circles Count (All)'])
 
                 else:
                     Log.logger.warning(img_name + ' cannot be found in ' + segmenter_csv)
                     means_intra.append(0)
                     stds_intra.append(0)
+                    medians_intra.append(0)
+                    pct5_intra.append(0)
+                    pct95_intra.append(0)
                     means_radius_intra.append(0)
                     stds_radius_intra.append(0)
+                    medians_radius_intra.append(0)
+                    pct5_radius_intra.append(0)
+                    pct95_radius_intra.append(0)
                     counts_intra.append(0)
 
                     means_total.append(0)
                     stds_total.append(0)
+                    medians_total.append(0)
+                    pct5_total.append(0)
+                    pct95_total.append(0)
                     means_radius_total.append(0)
                     stds_radius_total.append(0)
+                    medians_radius_total.append(0)
+                    pct5_radius_total.append(0)
+                    pct95_radius_total.append(0)
                     counts_total.append(0)
 
             self.df_stats.insert(len(self.df_stats.columns), "Mean (All gaps area in µm²)", means_total)
             self.df_stats.insert(len(self.df_stats.columns), "Std (All gaps area in µm²)", stds_total)
+            self.df_stats.insert(len(self.df_stats.columns), "Median (All gaps area in µm²)", medians_total)
+            self.df_stats.insert(len(self.df_stats.columns), "Percentile5 (All gaps area in µm²)", pct5_total)
+            self.df_stats.insert(len(self.df_stats.columns), "Percentile95 (All gaps area in µm²)", pct95_total)
             self.df_stats.insert(len(self.df_stats.columns), "Mean (All gaps radius in µm)", means_radius_total)
             self.df_stats.insert(len(self.df_stats.columns), "Std (All gaps radius in µm)", stds_radius_total)
+            self.df_stats.insert(len(self.df_stats.columns), "Median (All gaps radius in µm)", medians_radius_total)
+            self.df_stats.insert(len(self.df_stats.columns), "Percentile5 (All gaps radius in µm)", pct5_radius_total)
+            self.df_stats.insert(len(self.df_stats.columns), "Percentile95 (All gaps radius in µm)", pct95_radius_total)
             self.df_stats.insert(len(self.df_stats.columns), "Gap Circles Count (All)", counts_total)
 
             self.df_stats.insert(len(self.df_stats.columns), "Mean (ROI gaps area in µm²)", means_intra)
             self.df_stats.insert(len(self.df_stats.columns), "Std (ROI gaps area in µm²)", stds_intra)
+            self.df_stats.insert(len(self.df_stats.columns), "Percentile5 (ROI gaps area in µm²)", pct5_intra)
+            self.df_stats.insert(len(self.df_stats.columns), "Percentile95 (ROI gaps area in µm²)", pct95_intra)
+            self.df_stats.insert(len(self.df_stats.columns), "Median (ROI gaps area in µm²)", medians_intra)
             self.df_stats.insert(len(self.df_stats.columns), "Mean (ROI gaps radius in µm)", means_radius_intra)
+            self.df_stats.insert(len(self.df_stats.columns), "Median (ROI gaps radius in µm)", medians_radius_intra)
             self.df_stats.insert(len(self.df_stats.columns), "Std (ROI gaps radius in µm)", stds_radius_intra)
+            self.df_stats.insert(len(self.df_stats.columns), "Percentile5 (ROI gaps radius in µm)", pct5_radius_intra)
+            self.df_stats.insert(len(self.df_stats.columns), "Percentile95 (ROI gaps radius in µm)", pct95_radius_intra)
             self.df_stats.insert(len(self.df_stats.columns), "Gap Circles Count (ROI)", counts_intra)
 
         else:
