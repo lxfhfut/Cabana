@@ -1,5 +1,5 @@
 Configs:
-  Segmentation: False
+  Segmentation: True
   Quantification: True
   Gap Analysis: True
 
@@ -12,11 +12,11 @@ Segmentation:
   Max Size: 2048
 
 Detection:
-  Dark Line: False
+  Dark Line: True
   Min Line Width: 1
-  Max Line Width: 5
-  Low Contrast: 50
-  High Contrast: 100
+  Max Line Width: 3
+  Low Contrast: 100
+  High Contrast: 200
   Extend Line: False
   Correct Position: False
   Minimum Branch Length: 5

@@ -32,7 +32,7 @@ from utils import read_bar_format, array_divide
 class Cabana:
     def __init__(self, program_folder, input_folder, out_folder,
                  batch_size=5, batch_idx=0, ignore_large=True):
-        self.param_file = "Parameters.yml"
+        self.param_file = "default_params.yml"
 
         self.args = None  # args for Cabana program
         self.seg_args = parse_args()  # args for segmentation

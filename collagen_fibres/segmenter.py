@@ -18,8 +18,8 @@ from models import BackBone, LightConv3x3
 from utils import mean_image, cal_greenness, save_result_video, read_bar_format
 
 # For reproductivity
-# SEED = 0
-# torch.use_deterministic_algorithms(True)
+SEED = 0
+torch.use_deterministic_algorithms(True)
 
 
 def parse_args():
@@ -56,8 +56,8 @@ def parse_args():
 
 def segment_single_image(args):
     # Ensure the segmentation result for the same image (e.g. with different names) to be the same
-    # torch.manual_seed(SEED)
-    # torch.cuda.manual_seed(SEED)
+    torch.manual_seed(SEED)
+    torch.cuda.manual_seed(SEED)
 
     ori_img = cv2.imread(args.input)
     img_name = os.path.splitext(os.path.basename(args.input))[0]

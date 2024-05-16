@@ -51,7 +51,7 @@ class BatchProcessor:
 
         # print out parameters
         self.args = None
-        param_path = join_path(self.program_folder, "Parameters.yml")
+        param_path = join_path(self.program_folder, "default_params.yml")
         with open(param_path) as pf:
             try:
                 self.args = yaml.safe_load(pf)
