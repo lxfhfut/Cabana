@@ -26,13 +26,13 @@ from segmenter import parse_args, segment_single_image, visualize_fibres
 from skimage.color import rgb2hed, hed2rgb, rgb2gray
 
 from tqdm import tqdm
-from utils import read_bar_format, array_divide
+from utils import read_bar_format, array_divide, overlay_colorbar, color_survey_with_colorbar
 
 
 class Cabana:
     def __init__(self, program_folder, input_folder, out_folder,
                  batch_size=5, batch_idx=0, ignore_large=True):
-        self.param_file = "default_params.yml"
+        self.param_file = "Parameters.yml"
 
         self.args = None  # args for Cabana program
         self.seg_args = parse_args()  # args for segmentation
@@ -243,7 +243,7 @@ class Cabana:
                 orient_analyzer.get_energy_image())
             iio.imwrite(join_path(
                 self.export_dir, name_wo_ext, name_wo_ext + "_Coherency.tif"),
-                orient_analyzer.get_orientation_image())
+                orient_analyzer.get_coherency_image())
             iio.imwrite(join_path(
                 self.export_dir, name_wo_ext, name_wo_ext + "_Orientation.tif"),
                 orient_analyzer.get_orientation_image())
@@ -280,9 +280,9 @@ class Cabana:
         max_curve_win = int(self.args["Quantification"]["Maximum Curvature Window"])
         curve_win_step = int(self.args["Quantification"]["Curvature Window Step"])
 
-        Log.logger.info(f"min skeleton size={min_skel_size} px, "
-                        f"min branch length={min_branch_len} px, "
-                        f"min hole area={min_hole_area} px²")
+        Log.logger.info(f"Min skeleton size={min_skel_size} px, "
+                        f"Min branch length={min_branch_len} px, "
+                        f"Min hole area={min_hole_area} px²")
 
         # fibre detection returns fibres in black color,
         # so dark_line is set to "True" for skeleton analysis
@@ -436,9 +436,11 @@ class Cabana:
             img_paths = glob(join_path(self.mask_dir, '*.png'))
             names, means, stds, percentile5, median, percentile95, counts = [], [], [], [], [], [], []
             for img_path in img_paths:
+                img_name = os.path.basename(img_path)
                 min_gap_radius = min_gap_diameter / 2
                 min_dist = int(np.max([1, min_gap_radius]))
                 img = cv2.imread(img_path, 0)
+                color_img = cv2.imread(join_path(self.eligible_dir, os.path.splitext(img_name)[0][:-4] + ".png"))
                 mask = img.copy()
 
                 # set border pixels to zero to avoid partial circles
@@ -481,11 +483,15 @@ class Cabana:
                     mask = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
 
                 final_result = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+                color_result = color_img.copy()
                 for circle in final_circles:
                     final_result = cv2.circle(final_result, (int(circle[1]), int(circle[0])),
-                                              int(circle[2]), (0, 0, 255), 1)
-                img_name = os.path.basename(img_path)
+                                              int(circle[2]), (255, 255, 0), 1)
+                    color_result = cv2.circle(color_result, (int(circle[1]), int(circle[0])),
+                                              int(circle[2]), (255, 255, 0), 1)
                 cv2.imwrite(join_path(gap_result_dir, os.path.splitext(img_name)[0] + "_GapImage.png"), final_result)
+                cv2.imwrite(join_path(self.export_dir, os.path.splitext(img_name)[0],
+                                      os.path.splitext(img_name)[0] + "_GapImage.png"), color_result)
                 areas = np.pi * (np.array(final_circles)[:, 2] ** 2) * self.ims_res**2
                 names.append(img_name)
                 means.append(np.mean(areas))
@@ -532,20 +538,23 @@ class Cabana:
             binary_mask = cv2.imread(img_path, 0)
             img_fibre = cv2.imread(join_path(self.mask_dir, base_name + '_roi.png'), 0)
             color_img_fibre = cv2.cvtColor(img_fibre, cv2.COLOR_GRAY2BGR)
+            color_img = cv2.imread(join_path(self.eligible_dir, base_name + ".png"))
             areas = []
             circle_cnt = 0
             for index, row in df_circles.iterrows():
                 area, x, y = row['Area (µm²)'], int(row['X']), int(row['Y'])
                 radius = int(np.sqrt(area / np.pi) / self.ims_res)   # convert back to measurements in pixels
                 if binary_mask[y, x] > 0:
-                    color_img_fibre = cv2.circle(color_img_fibre, (x, y), radius, (0, 255, 0), 1)
+                    color_img_fibre = cv2.circle(color_img_fibre, (x, y), radius, (0, 255, 255), 1)
+                    color_img = cv2.circle(color_img, (x, y), radius, (0, 255, 255), 1)
                     areas.append(area)
                     circle_cnt += 1
-
-            areas = np.array(areas)
-            radius = np.sqrt(areas / np.pi)
             cv2.imwrite(join_path(gap_result_dir,
                                   base_name + "_roi_GapImage_intra_gaps.png"), color_img_fibre)
+            cv2.imwrite(join_path(self.export_dir, base_name + "_roi",
+                                  base_name + "_roi_GapImage_intra_gaps.png"), color_img)
+            areas = np.array(areas)
+            radius = np.sqrt(areas / np.pi)
             names.append(base_name + "_roi.png")
             if len(areas) > 0:
                 means.append(np.mean(areas))
@@ -590,12 +599,12 @@ class Cabana:
         else:
             Log.logger.warning('No gap analysis results. Skipping intra gap analysis.')
 
-        # Moving images to 'Export' folder
-        img_paths = glob(join_path(gap_result_dir, '*.png'))
-        for img_path in img_paths:
-            img_name = os.path.basename(img_path)
-            img_name = img_name[:img_name.index("_GapImage")]
-            shutil.copy(img_path, join_path(self.output_folder, "Exports", img_name))
+        # # Moving images to 'Export' folder
+        # img_paths = glob(join_path(gap_result_dir, '*.png'))
+        # for img_path in img_paths:
+        #     img_name = os.path.basename(img_path)
+        #     img_name = img_name[:img_name.index("_GapImage")]
+        #     shutil.copy(img_path, join_path(self.output_folder, "Exports", img_name))
 
     def combine_statistics(self):
         Log.logger.info('Combining statistics.')
@@ -960,7 +969,7 @@ class Cabana:
             Path(join_path(self.color_dir, name_wo_ext)).mkdir(parents=True, exist_ok=True)
 
             rgb_img = iio.imread(ori_img_path)
-            roi_img = iio.imread(join_path(self.bin_dir, name_wo_ext[:-4] + "_mask.png"))
+            # roi_img = iio.imread(join_path(self.bin_dir, name_wo_ext[:-4] + "_mask.png"))
 
             mask_img = 255 - iio.imread(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Mask.png"))
             mask_img = np.repeat(mask_img[:, :, np.newaxis], 3, axis=2)
@@ -980,53 +989,77 @@ class Cabana:
             orient_map = iio.imread(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Orientation.tif"))
             length_map = iio.imread(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Length_Map.tif"))
 
-            bg_index_pos = np.where(roi_img < 128)
-            energy_map[bg_index_pos[0], bg_index_pos[1]] = 0
-            cohere_map[bg_index_pos[0], bg_index_pos[1]] = 0
-            orient_map[bg_index_pos[0], bg_index_pos[1]] = 0
-            sbs_color_map(
-                rgb_img, orient_map,
-                join_path(self.color_dir, name_wo_ext,
-                          name_wo_ext + "_color_orientation.png"), cbar_label="Orientation")
-            sbs_color_map(
-                rgb_img, cohere_map,
-                join_path(self.color_dir, name_wo_ext,
-                          name_wo_ext + "_color_coherency.png"), cbar_label="Coherency")
+            # bg_index_pos = np.where(roi_img < 128)
+            # energy_map[bg_index_pos[0], bg_index_pos[1]] = 0
+            # cohere_map[bg_index_pos[0], bg_index_pos[1]] = 0
+            # orient_map[bg_index_pos[0], bg_index_pos[1]] = 0
+            overlay_colorbar(rgb_img, energy_map,
+                             join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_energy.png"),
+                             clabel="Normalized Energy", mode="overlay")
+            # sbs_color_map(
+            #     rgb_img, energy_map,
+            #     join_path(self.color_dir, name_wo_ext,
+            #               name_wo_ext + "_color_energy.png"), cbar_label="Normalized Energy")
+            # sbs_color_map(
+            #     rgb_img, orient_map,
+            #     join_path(self.color_dir, name_wo_ext,
+            #               name_wo_ext + "_color_orientation.png"), cbar_label="Orientation")
+            # overlay_colorbar(rgb_img, orient_map,
+            #                  join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_orientation.png"),
+            #                  clabel="Orientation (rad)", cmap="hsv", mode="overlay", rad=True)
+            color_survey_with_colorbar(orient_map, np.ones_like(orient_map), np.ones_like(orient_map),
+                                       join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_orientation.png"),
+                                       clabel="Orientation (rad)")
 
-            color_length = info_color_map(rgb_img, length_map, cbar_label="Length (µm)", cmap="plasma", radius=1)
-            Image.fromarray(color_length).save(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_length.png"))
+            overlay_colorbar(rgb_img, cohere_map,
+                             join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_coherency.png"),
+                             clabel="Coherency", mode="overlay")
+
+            # sbs_color_map(
+            #     rgb_img, cohere_map,
+            #     join_path(self.color_dir, name_wo_ext,
+            #               name_wo_ext + "_color_coherency.png"), cbar_label="Coherency")
+
+            # color_length = info_color_map(rgb_img, length_map, cbar_label="Length (µm)", cmap="plasma", radius=1)
+            save_path = join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_length.png")
+            overlay_colorbar(rgb_img, length_map, save_path,
+                             clabel="Length (µm)", cmap='plasma', dpi=200, font_size=10)
 
             curve_paths = glob(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Curve_Map_*"))
             for curve_path in curve_paths:
                 curve_name_wo_ext = os.path.basename(curve_path)[:-4]
                 suffix = curve_name_wo_ext[len(name_wo_ext + "_Curve_Map"):]
-                curve_map = tiff.imread(curve_path)
-                color_curve = info_color_map(rgb_img, curve_map/180, cbar_label="Curliness", cmap="plasma", radius=1)
-                Image.fromarray(color_curve).save(
-                    join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_curve" + suffix + ".png"))
+                curve_map = tiff.imread(curve_path) / 180
+                save_path = join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_curve" + suffix + ".png")
+                overlay_colorbar(rgb_img, curve_map, save_path,
+                                 clabel="Curliness", cmap='plasma', dpi=200, font_size=10)
+                # color_curve = info_color_map(rgb_img, curve_map, cbar_label="Curliness", cmap="plasma", radius=1)
+                # Image.fromarray(color_curve).save(
+                #     join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_curve" + suffix + ".png"))
 
-            width_img = 255 - iio.imread(
-                join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Width.png"))
-            width_img = np.repeat(width_img[:, :, np.newaxis], 3, axis=2)
-            width_map = width_color_map(rgb_img, width_img, mask_img)
-            Image.fromarray(width_map).save(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_width.png"))
+            # width_img = 255 - iio.imread(
+            #     join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Width.png"))
+            # width_img = np.repeat(width_img[:, :, np.newaxis], 3, axis=2)
+            # width_map = width_color_map(rgb_img, width_img, mask_img)
+            # Image.fromarray(width_map).save(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_width.png"))
 
-            color_survey = iio.imread(
-                join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Color_Survey.tif"))
-            color_survey[bg_index_pos[0], bg_index_pos[1], :] = [228, 228, 228]
-            sbs_color_survey(rgb_img, color_survey, join_path(self.color_dir,
-                                                              name_wo_ext, name_wo_ext + "_orient_color_survey.png"))
+            # color_survey = iio.imread(
+            #     join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Color_Survey.tif"))
+            # # color_survey[bg_index_pos[0], bg_index_pos[1], :] = [228, 228, 228]
+            # sbs_color_survey(rgb_img, color_survey, join_path(self.color_dir,
+            #                                                   name_wo_ext, name_wo_ext + "_orient_color_survey.png"))
+            color_survey_with_colorbar(orient_map, cohere_map, cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY) / 255.0,
+                                       join_path(self.color_dir,
+                                                 name_wo_ext,
+                                                 name_wo_ext + "_orient_color_survey.png"))
 
             if os.path.exists(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_GapImage.png")):
-                gap_img = iio.imread(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_GapImage.png"))
-                sbs_color_survey(rgb_img, gap_img,
-                                 join_path(self.color_dir, name_wo_ext, name_wo_ext + "_all_gaps.png"))
+                shutil.copy(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_GapImage.png"),
+                            join_path(self.color_dir, name_wo_ext, name_wo_ext + "_all_gaps.png"))
 
             if os.path.exists(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_GapImage_intra_gaps.png")):
-                intra_gap_img = iio.imread(join_path(
-                    self.export_dir, name_wo_ext, name_wo_ext + "_GapImage_intra_gaps.png"))
-                sbs_color_survey(rgb_img, intra_gap_img,
-                                 join_path(self.color_dir, name_wo_ext, name_wo_ext + "_intra_gaps.png"))
+                shutil.copy(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_GapImage_intra_gaps.png"),
+                            join_path(self.color_dir, name_wo_ext, name_wo_ext + "_intra_gaps.png"))
 
     def run(self):
         self.initialize_params()

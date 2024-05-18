@@ -240,11 +240,11 @@ def width_color_map(img, width_img, mask_img, width_color=[0, 255, 255], mask_co
 def sbs_color_map(img, info_map, save_name, cbar_label="Length", cmap="coolwarm"):
     fig, axes = plt.subplots(1, 2, figsize=(12, 9))
 
-    axes[0].imshow(np.flipud(img))
+    axes[0].imshow(img)
     axes[0].set_xticks([])
     axes[0].set_yticks([])
 
-    axes[1] = isns.imgplot(np.flipud(info_map), ax=axes[1],
+    axes[1] = isns.imgplot(info_map, ax=axes[1],
                            cmap=sns.color_palette(cmap, as_cmap=True),
                            cbar_label=cbar_label)
     axes[1].set_xticks([])
@@ -254,14 +254,48 @@ def sbs_color_map(img, info_map, save_name, cbar_label="Length", cmap="coolwarm"
     plt.close()
 
 
+def color_survey_with_colorbar(orient, coherency, energy, save_path, clabel="Color Survey", dpi=100, font_size=12):
+    # Normalize orientation to [0, 1] then scale to [0, 179] for hue
+    hue = (((orient + np.pi / 2) / np.pi) * 179).astype(np.uint8)
+
+    # Scale coherency and energy to [0, 255] for saturation and value
+    saturation = (coherency * 255).astype(np.uint8)
+    value = (energy * 255).astype(np.uint8)
+
+    # Stack the channels to create an HSV image
+    hsv_image = np.stack((hue, saturation, value), axis=-1)
+
+    # Convert the HSV image to a BGR image
+    colored_img = cv2.cvtColor(hsv_image, cv2.COLOR_HSV2RGB)
+
+    height, width = orient.shape[:2]
+
+    fig1 = plt.figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
+    ax1 = fig1.add_subplot()
+    img_tmp = ax1.imshow(orient, cmap="hsv")
+    fig2 = plt.figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
+    ax2 = fig2.add_subplot()
+    ax2.imshow(colored_img)
+    divider = make_axes_locatable(ax2)
+    cax = divider.append_axes("right", size="5%", pad=0.1)
+    cax.tick_params(labelsize=font_size)
+    cbar = fig2.colorbar(img_tmp, cax=cax)
+    cbar.ax.set_ylabel(clabel, fontsize=font_size)
+    cbar.set_ticks(ticks=[-np.pi/2, -np.pi/4, 0, np.pi/4, np.pi/2],
+                   labels=[r'-$\pi$/2', r'-$\pi$/4', '0', r'$\pi$/4', r'$\pi$/2'])
+    # fig2.patch.set_visible(False)
+    ax2.axis('off')
+    fig2.savefig(save_path, format='png', transparent=False, facecolor='white')
+
+
 def sbs_color_survey(img, info_map, save_name):
     fig, axes = plt.subplots(1, 2, figsize=(12, 9))
 
-    axes[0].imshow(np.flipud(img))
+    axes[0].imshow(img)
     axes[0].set_xticks([])
     axes[0].set_yticks([])
 
-    axes[1].imshow(np.flipud(info_map))
+    axes[1].imshow(info_map)
     axes[1].set_xticks([])
     axes[1].set_yticks([])
 
@@ -1391,21 +1425,73 @@ def visualize(gray, mag, ny, nx, saliency, gd=5):
     plt.show()
 
 
-def add_colorbar(img, clabel="Curvature (degrees)", cmap='inferno', dpi=100, font_size=10):
+def overlay_colorbar(rgb_img,
+                     img,
+                     save_path,
+                     clabel="Curvature (degrees)",
+                     cmap='plasma',
+                     mode="overwrite",
+                     dpi=100,
+                     font_size=12):
     height, width = img.shape[:2]
+    if mode == "overwrite":
+        colormap = matplotlib.colormaps.get_cmap(cmap)
+        colored_img = colormap(img / np.max(img))[:, :, :3]
+        hsv_img = cv2.cvtColor((colored_img * 255).astype(np.uint8), cv2.COLOR_RGB2HSV)
+        hsv_img[:, :, 2] = (normalize(hsv_img[..., 2], 0, 100) * 255).astype(np.uint8)
+        colored_img = cv2.cvtColor(hsv_img, cv2.COLOR_HSV2RGB)
+        bg_index_pos = np.where(img <= 0)
+        colored_img[bg_index_pos[0], bg_index_pos[1], :] = rgb_img[bg_index_pos[0], bg_index_pos[1], :]
+    elif mode == "overlay":
+        gray_img = np.repeat(cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY)[..., None], 3, axis=2)
+        n_colors = 256
+        hues = sns.color_palette(cmap, n_colors + 1)
 
+        hue_indices = (n_colors * (img / np.max(img))).astype(int)
+        hues = np.array(hues)
+
+        hue_color = np.take(hues, hue_indices, axis=0)
+        colored_img = (gray_img * hue_color).astype(np.uint8)
+    elif mode == "weighted":
+        gray_img = np.repeat(cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY)[..., None], 3, axis=2)
+        colormap = matplotlib.colormaps.get_cmap(cmap)
+        colored_img = colormap(img / np.max(img))[:, :, :3]
+        hsv_img = cv2.cvtColor((colored_img * 255).astype(np.uint8), cv2.COLOR_RGB2HSV)
+        hsv_img[:, :, 2] = (normalize(hsv_img[..., 2], 0, 100) * 255).astype(np.uint8)
+        colored_img = cv2.cvtColor(hsv_img, cv2.COLOR_HSV2RGB)
+        colored_img = cv2.addWeighted(colored_img, 0.3, gray_img, 0.7, 50)
+
+    fig1 = plt.figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
+    ax1 = fig1.add_subplot()
+    img_tmp = ax1.imshow(img, cmap=cmap)
+    fig2 = plt.figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
+    ax2 = fig2.add_subplot()
+    ax2.imshow(colored_img)
+    divider = make_axes_locatable(ax2)
+    cax = divider.append_axes("right", size="5%", pad=0.1)
+    cax.tick_params(labelsize=font_size)
+    cbar = fig2.colorbar(img_tmp, cax=cax)
+    cbar.ax.set_ylabel(clabel, fontsize=font_size)
+    # fig2.patch.set_visible(False)
+    ax2.axis('off')
+    fig2.savefig(save_path, format='png', transparent=False, facecolor='white')
+    return rgb_img
+
+
+def add_colorbar(rgb_img, img, clabel="Curvature (degrees)", cmap='inferno', dpi=100, font_size=12):
+    height, width = img.shape[:2]
     colormap = matplotlib.colormaps.get_cmap(cmap)
     colored_img = colormap(img / np.max(img))[:, :, :3]
     hsv_img = cv2.cvtColor((colored_img * 255).astype(np.uint8), cv2.COLOR_RGB2HSV)
-    hsv_img[:, :, 2] = (normalize(hsv_img[..., 2], 2, 98) * 255).astype(np.uint8)
+    hsv_img[:, :, 2] = (normalize(hsv_img[..., 2], 0, 100) * 255).astype(np.uint8)
     colored_img = cv2.cvtColor(hsv_img, cv2.COLOR_HSV2RGB) / 255.0
 
-    fig1 = Figure(figsize=(width / dpi * 1.5, height / dpi), dpi=dpi)
+    fig1 = Figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi, frameon=False)
     ax1 = fig1.add_subplot()
     img_tmp = ax1.imshow(img, cmap=cmap)
-    fig2 = Figure(figsize=(width / dpi * 1.5, height / dpi), dpi=dpi)
+    fig2 = Figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi, frameon=False)
     ax2 = fig2.add_subplot()
-    ax2.imshow(colored_img)
+    ax2.imshow(cv2.addWeighted(rgb_img, 0.3, (colored_img*255).astype(np.uint8), 0.7, 20))
     divider = make_axes_locatable(ax2)
     cax = divider.append_axes("right", size="5%", pad=0.1)
     cax.tick_params(labelsize=font_size)
@@ -1416,7 +1502,8 @@ def add_colorbar(img, clabel="Curvature (degrees)", cmap='inferno', dpi=100, fon
     canvas = FigureCanvasAgg(fig2)
     canvas.draw()
     s, (width, height) = canvas.print_to_buffer()
-    return np.frombuffer(s, np.uint8).reshape((height, width, 4))[..., :3]
+    full_frame = np.frombuffer(s, np.uint8).reshape((height, width, 4))[..., :3]
+    return full_frame
 
 
 if __name__ == "__main__":
