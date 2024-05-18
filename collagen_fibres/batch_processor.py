@@ -23,14 +23,14 @@ class BatchProcessor:
         self.ignore_large = True
         gui = Tk()
         gui.withdraw()
-        self.program_folder = filedialog.askdirectory(initialdir=os.path.expanduser("~/Documents/"),
-                                                      title="Choose Program Directory")
-        if len(self.program_folder) == 0 or len(os.listdir(self.program_folder)) == 0:
+        self.param_folder = filedialog.askdirectory(initialdir=os.path.expanduser("~/Documents/"),
+                                                      title="Choose Parameter Directory")
+        if len(self.param_folder) == 0 or len(os.listdir(self.param_folder)) == 0:
             print("No path/folder has been selected. Abort!")
             os._exit(1)
-        print(self.program_folder + " has been selected.")
+        print(self.param_folder + " has been selected.")
 
-        self.input_folder = filedialog.askdirectory(initialdir=os.path.dirname(self.program_folder),
+        self.input_folder = filedialog.askdirectory(initialdir=os.path.dirname(self.param_folder),
                                                     title="Choose Input Directory")
         if len(self.input_folder) == 0 or len(os.listdir(self.input_folder)) == 0:
             print("No path/folder has been selected. Abort.")
@@ -51,7 +51,7 @@ class BatchProcessor:
 
         # print out parameters
         self.args = None
-        param_path = join_path(self.program_folder, "Parameters.yml")
+        param_path = join_path(self.param_folder, "Parameters.yml")
         with open(param_path) as pf:
             try:
                 self.args = yaml.safe_load(pf)
@@ -269,7 +269,7 @@ class BatchProcessor:
             self.batch_num = batch_idx
             batch_folder = join_path(self.output_folder, 'Batches', 'batch_' + str(batch_idx))
             Path(batch_folder).mkdir(parents=True, exist_ok=True)
-            batch_cabana = Cabana(self.program_folder, self.input_folder,
+            batch_cabana = Cabana(self.param_folder, self.input_folder,
                                   batch_folder, self.batch_size, batch_idx, self.ignore_large)
             batch_cabana.run()
             with open(join_path(self.output_folder, '.CheckPoint.txt'), 'r') as ckpt:

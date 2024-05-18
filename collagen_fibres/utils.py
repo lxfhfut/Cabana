@@ -286,6 +286,7 @@ def color_survey_with_colorbar(orient, coherency, energy, save_path, clabel="Col
     # fig2.patch.set_visible(False)
     ax2.axis('off')
     fig2.savefig(save_path, format='png', transparent=False, facecolor='white')
+    plt.close('all')
 
 
 def sbs_color_survey(img, info_map, save_name):
@@ -1475,6 +1476,7 @@ def overlay_colorbar(rgb_img,
     # fig2.patch.set_visible(False)
     ax2.axis('off')
     fig2.savefig(save_path, format='png', transparent=False, facecolor='white')
+    plt.close('all')
     return rgb_img
 
 

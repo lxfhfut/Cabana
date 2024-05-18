@@ -1,3 +1,4 @@
+import os
 import cv2
 import yaml
 import torch
@@ -224,7 +225,7 @@ css = '''
 st.markdown(css, unsafe_allow_html=True)
 
 args = parse_args()
-yml_data = yaml.safe_load(Path("default_params.yml").read_text())
+yml_data = yaml.safe_load(Path(os.path.join(os.path.dirname(__file__), "default_params.yml")).read_text())
 prompt = st.subheader(":blue[Upload an image to try out parameters!]")
 with st.sidebar:
     st.title(':red[Parameter Selection]')
@@ -319,7 +320,7 @@ if image_path is not None:
 
         det.detect_lines(image)
         _, width_image, binary_contours, _ = det.get_results()
-        st.balloons()
+        # st.balloons()
         cols[1].image(width_image, clamp=True, caption="Fibre Image", output_format="PNG")
 
         im = Image.fromarray(binary_contours)
@@ -349,7 +350,7 @@ if image_path is not None:
             gap_bar = st.progress(0.0, "Gap analysis in progress. Please wait.")
             gap_img = analyze_gaps(image, min_gap_diameter, gap_bar)
             gap_bar.empty()
-            st.balloons()
+            # st.balloons()
             cols[1].image(cv2.cvtColor(gap_img, cv2.COLOR_BGR2RGB),
                           clamp=True, caption="Gap Image", output_format="PNG")
         st.session_state.gap_clicked = False
