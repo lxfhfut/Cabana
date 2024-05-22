@@ -257,6 +257,7 @@ with st.sidebar:
 
     with tab2:
         line_width = st.slider("Line Width (pixels)", 1, 15, (3, 5))
+        line_step = st.slider("Line Step (pixels)", 1, 5, 2)
         contrast = st.slider("Contrast", 0, 255, (100, 200))
         min_length = st.slider("Minimum Branch Length", 1, 50, 10)
 
@@ -264,8 +265,12 @@ with st.sidebar:
         dark_line = sidebar_cols[0].checkbox("Dark Line", value=True)
         extend = sidebar_cols[1].checkbox("Extend Line")
         correct = sidebar_cols[0].checkbox("Correct Position")
+        actual_line_step = line_step
+        if actual_line_step > line_width[1] - line_width[0]:
+            actual_line_step = line_width[1] - line_width[0]
         yml_data["Detection"]["Min Line Width"] = line_width[0]
         yml_data["Detection"]["Max Line Width"] = line_width[1]
+        yml_data["Detection"]["Line Width Step"] = actual_line_step
         yml_data["Detection"]["Low Contrast"] = contrast[0]
         yml_data["Detection"]["High Contrast"] = contrast[1]
         yml_data["Detection"]["Minimum Branch Length"] = min_length
@@ -310,7 +315,7 @@ if image_path is not None:
     cols[0].image(image, clamp=True, caption="Original Image")
 
     if st.session_state.det_clicked:
-        det = FibreDetector(line_widths=line_width,
+        det = FibreDetector(line_widths=np.arange(line_width[0], line_width[1], actual_line_step),
                             low_contrast=contrast[0],
                             high_contrast=contrast[1],
                             dark_line=dark_line,

@@ -15,6 +15,7 @@ Detection:
   Dark Line: True
   Min Line Width: 1
   Max Line Width: 3
+  Line Width Step: 1
   Low Contrast: 100
   High Contrast: 200
   Extend Line: False

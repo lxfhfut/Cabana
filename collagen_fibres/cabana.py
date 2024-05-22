@@ -169,15 +169,15 @@ class Cabana:
         correct_pos = self.args["Detection"]["Correct Position"]
         min_line_width = self.args["Detection"]["Min Line Width"]
         max_line_width = self.args["Detection"]["Max Line Width"]
-        # line_width_step = self.args["Detection"]["Line Width Step"]
-        # line_widths = np.arange(min_line_width, max_line_width + line_width_step, line_width_step)
+        line_width_step = self.args["Detection"]["Line Width Step"]
+        line_widths = np.arange(min_line_width, max_line_width + line_width_step, line_width_step)
         low_contrast = self.args["Detection"]["Low Contrast"]
         high_contrast = self.args["Detection"]["High Contrast"]
         min_len = self.args["Detection"]["Minimum Branch Length"]
         Log.logger.info(f"Detecting fibres with line widths in "
                         f"[{min_line_width}, {max_line_width}] pixels "
                         f"for {len(glob(join_path(self.roi_dir, '*.png')))} images.")
-        det = FibreDetector(line_widths=[min_line_width, max_line_width],
+        det = FibreDetector(line_widths=line_widths,
                             low_contrast=low_contrast,
                             high_contrast=high_contrast,
                             dark_line=dark_line,

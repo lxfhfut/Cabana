@@ -43,7 +43,7 @@ class FibreDetector:
         :param extend_line:
         '''
 
-        # self.line_widths = np.array([line_widths]) if np.isscalar(line_widths) else np.array(line_widths)
+        self.line_widths = np.array([line_widths]) if np.isscalar(line_widths) else np.array(line_widths)
         self.low_contrast = low_contrast
         self.high_contrast = high_contrast
         self.min_len = min_len
@@ -53,20 +53,7 @@ class FibreDetector:
         self.estimate_width = estimate_width
         self.extend_line = extend_line
 
-        if np.isscalar(line_widths):
-            line_widths = [line_widths, line_widths]
-        elif len(line_widths) == 1:
-            line_widths = [line_widths[0], line_widths[0]]
-        elif len(line_widths) > 2:
-            print(
-                'Warning: line_widths must be a scalar or a list of length 2. Only the first two values will be used.')
-            line_widths = line_widths[:2]
-
-        min_sigma, max_sigma = [lw / (2 * np.sqrt(3)) + 0.5 for lw in line_widths]
-
-        self.sigmas = np.array(
-            [min_sigma * (1.3 ** i) for i in range(int(np.log(max_sigma / min_sigma) / np.log(1.3)) + 1)])
-        # self.sigmas = self.line_widths / (2 * np.sqrt(3)) + 0.5
+        self.sigmas = self.line_widths / (2 * np.sqrt(3)) + 0.5
         self.clow = self.low_contrast
         self.chigh = self.high_contrast
         if self.dark_line:
