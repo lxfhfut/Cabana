@@ -238,11 +238,16 @@ with st.sidebar:
                                 ":violet-background[Gap Analysis]"])
     with tab1:
         color_cols = st.columns(2)
-        hex_color = color_cols[0].color_picker("Color of Interest", "#F90004")
-        color_cols[1].markdown(f"Normalized hue: :red[{hex_to_hue(hex_color):.2f}]")
-        color_thresh = st.slider("Color Threshold", 0.0, 1.0, 0.2, step=0.05)
-        num_labels = st.slider("Number of Labels", 16, 96, 32, step=8)
-        max_num_itrs = st.slider("Max Number of Iterations", 10, 60, 30, step=5)
+        hex_color = color_cols[0].color_picker("Color of Interest", "#F90004",
+                                               help="Select the color you want to segment.")
+        color_cols[1].markdown(f"Normalized hue: :red[{hex_to_hue(hex_color):.2f}]",
+                               help="Normalized hue value between 0 and 1 for the selected color.")
+        color_thresh = st.slider("Color Threshold", 0.0, 1.0, 0.25, step=0.01,
+                                 help="Lower this threshold to preserve more areas of interest.")
+        num_labels = st.slider("Number of Labels", 16, 96, 32, step=8,
+                               help="Increase this value for fine-granularity segmentation.")
+        max_num_itrs = st.slider("Max Number of Iterations", 10, 60, 30, step=5,
+                                 help="Reduce this value for fine-granularity segmentation.")
         yml_data["Segmentation"]["Number of Labels"] = num_labels
         yml_data["Segmentation"]["Max Iterations"] = max_num_itrs
         yml_data["Segmentation"]["Color Threshold"] = color_thresh
@@ -256,15 +261,17 @@ with st.sidebar:
         tab_cols[1].button('Segment', on_click=seg_click_button, type="primary")
 
     with tab2:
-        line_width = st.slider("Line Width (pixels)", 1, 15, (3, 5))
-        line_step = st.slider("Line Step (pixels)", 1, 5, 2)
-        contrast = st.slider("Contrast", 0, 255, (100, 200))
-        min_length = st.slider("Minimum Branch Length", 1, 50, 10)
+        line_width = st.slider("Line Width (pixels)", 1, 15, (1, 3),
+                               help="Increase line widths to detect thicker fibers.")
+        line_step = st.slider("Line Step (pixels)", 1, 5, 2, help="Reduce this value to detect more fibers.")
+        contrast = st.slider("Contrast", 0, 255, (100, 200), help="Reduce the values if fibre contrast is low.")
+        min_length = st.slider("Minimum Line Length", 1, 50, 10, help="Fibers shorter than this length will be ignored.")
 
         sidebar_cols = st.columns([0.5, 0.5])
-        dark_line = sidebar_cols[0].checkbox("Dark Line", value=True)
-        extend = sidebar_cols[1].checkbox("Extend Line")
-        correct = sidebar_cols[0].checkbox("Correct Position")
+        dark_line = sidebar_cols[0].checkbox("Dark Line", value=True,
+                                             help="Enable to detect black fibers on light backgrounds.")
+        extend = sidebar_cols[1].checkbox("Extend Line", help="Enable to detect fibers near junctions.")
+        # correct = sidebar_cols[0].checkbox("Correct Position")
         actual_line_step = line_step
         if actual_line_step > line_width[1] - line_width[0]:
             actual_line_step = line_width[1] - line_width[0]
@@ -276,7 +283,7 @@ with st.sidebar:
         yml_data["Detection"]["Minimum Branch Length"] = min_length
         yml_data["Detection"]["Dark Line"] = dark_line
         yml_data["Detection"]["Extend Line"] = extend
-        yml_data["Detection"]["Correct Position"] = correct
+        # yml_data["Detection"]["Correct Position"] = correct
         if 'det_clicked' not in st.session_state:
             st.session_state.det_clicked = False
 
@@ -286,7 +293,8 @@ with st.sidebar:
         sidebar_cols[1].button('Detect', on_click=det_click_button, type="primary")
 
     with tab3:
-        min_gap_diameter = st.slider("Minimum Gap Diameter (pixels)", 5, 100, 20)
+        min_gap_diameter = st.slider("Minimum Gap Diameter (pixels)", 5, 100, 20,
+                                     help="Lower this for detailed analysis with increased computational cost.")
         yml_data["Gap Analysis"]["Minimum Gap Diameter"] = min_gap_diameter
         if 'gap_clicked' not in st.session_state:
             st.session_state.gap_clicked = False
@@ -296,6 +304,10 @@ with st.sidebar:
 
         gap_cols = st.columns([0.6, 0.4])
         gap_cols[1].button('Analyze', on_click=gap_click_button, type="primary")
+
+        max_disp_hdm = st.slider("Max Display HDM", 100, 255, 230,
+                                 help="Reduce this value to narrow down the HDM area of interest.")
+        yml_data["Quantification"]["Maximum Display HDM"] = max_disp_hdm
 
 right_cols = st.columns([0.8, 0.2])
 yaml_content = yaml.dump(yml_data)
@@ -320,7 +332,7 @@ if image_path is not None:
                             high_contrast=contrast[1],
                             dark_line=dark_line,
                             extend_line=extend,
-                            correct_pos=correct,
+                            correct_pos=False,
                             min_len=min_length)
 
         det.detect_lines(image)
@@ -332,7 +344,7 @@ if image_path is not None:
         with BytesIO() as buf:
             im.save(buf, format='PNG')
             data = buf.getvalue()
-        st.download_button(label="Download Binary Fibres", data=data, file_name="binary_fibres.png", type="primary")
+        st.download_button(label="Download binary image of detected fibres", data=data, file_name="binary_fibres.png", type="primary")
         st.session_state.det_clicked = False
 
     if st.session_state.seg_clicked:

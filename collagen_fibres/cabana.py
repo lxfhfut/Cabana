@@ -166,14 +166,15 @@ class Cabana:
     def detect_fibres(self):
         dark_line = self.args["Detection"]["Dark Line"]
         extend_line = self.args["Detection"]["Extend Line"]
-        correct_pos = self.args["Detection"]["Correct Position"]
+        # correct_pos = self.args["Detection"]["Correct Position"]
         min_line_width = self.args["Detection"]["Min Line Width"]
         max_line_width = self.args["Detection"]["Max Line Width"]
         line_width_step = self.args["Detection"]["Line Width Step"]
         line_widths = np.arange(min_line_width, max_line_width + line_width_step, line_width_step)
         low_contrast = self.args["Detection"]["Low Contrast"]
         high_contrast = self.args["Detection"]["High Contrast"]
-        min_len = self.args["Detection"]["Minimum Branch Length"]
+        min_len = self.args["Detection"]["Minimum Line Length"]
+        max_len = self.args["Detection"]["Maximum Line Length"]
         Log.logger.info(f"Detecting fibres with line widths in "
                         f"[{min_line_width}, {max_line_width}] pixels "
                         f"for {len(glob(join_path(self.roi_dir, '*.png')))} images.")
@@ -182,8 +183,9 @@ class Cabana:
                             high_contrast=high_contrast,
                             dark_line=dark_line,
                             extend_line=extend_line,
-                            correct_pos=correct_pos,
-                            min_len=min_len)
+                            correct_pos=False,
+                            min_len=min_len,
+                            max_len=max_len)
         for img_path in tqdm(glob(join_path(self.roi_dir, '*.png')), bar_format=read_bar_format):
             det.detect_lines(img_path)
             contour_img, width_img, binary_contours, binary_widths = det.get_results()
@@ -273,9 +275,9 @@ class Cabana:
         self.df_stats = self.df_stats.merge(df_orient, on="Image")
 
     def quantify_skeletons(self):
-        min_skel_size = int(self.args["Quantification"]["Minimum Skeleton Size"])
+        min_skel_size = int(self.args["Quantification"]["Minimum Branch Length"])  # hardcode to min branch len
         min_branch_len = int(self.args["Quantification"]["Minimum Branch Length"])
-        min_hole_area = int(self.args["Quantification"]["Minimum Hole Area"])
+        min_hole_area = 8  # int(self.args["Quantification"]["Minimum Hole Area"])
         min_curve_win = int(self.args["Quantification"]["Minimum Curvature Window"])
         max_curve_win = int(self.args["Quantification"]["Maximum Curvature Window"])
         curve_win_step = int(self.args["Quantification"]["Curvature Window Step"])

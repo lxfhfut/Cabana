@@ -19,16 +19,13 @@ Detection:
   Low Contrast: 100
   High Contrast: 200
   Extend Line: False
-  Correct Position: False
-  Minimum Branch Length: 5
-  Maximum Branch Length: 0
+  Minimum Line Length: 5
+  Maximum Line Length: 0
 
 Quantification:
   Maximum Display HDM: 230
   Contrast Enhancement: 0.1
   Minimum Branch Length: 5
-  Minimum Skeleton Size: 10
-  Minimum Hole Area: 8 
   Minimum Curvature Window: 10
   Maximum Curvature Window: 30
   Curvature Window Step: 10
