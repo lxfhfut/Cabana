@@ -13,14 +13,13 @@ Segmentation:
 
 Detection:
   Dark Line: True
-  Min Line Width: 1
-  Max Line Width: 3
-  Line Width Step: 1
+  Min Line Width: 5
+  Max Line Width: 13
+  Line Width Step: 2
   Low Contrast: 100
   High Contrast: 200
   Extend Line: False
-  Minimum Line Length: 5
-  Maximum Line Length: 0
+  Minimum Branch Length: 5
 
 Quantification:
   Maximum Display HDM: 230
@@ -31,4 +30,4 @@ Quantification:
   Curvature Window Step: 10
 
 Gap Analysis:
-  Minimum Gap Diameter: 10
+  Minimum Gap Diameter: 5
