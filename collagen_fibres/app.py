@@ -245,7 +245,7 @@ with st.sidebar:
                                help="Normalized hue value between 0 and 1 for the selected color.")
         color_thresh = st.slider("Color Threshold", 0.0, 1.0, 0.25, step=0.01,
                                  help="Lower this threshold to preserve more areas of interest.")
-        num_labels = st.slider("Number of Labels", 16, 96, 32, step=8,
+        num_labels = st.slider("Number of Labels", 16, 96, 32, step=4,
                                help="Increase this value for fine-granularity segmentation.")
         max_num_itrs = st.slider("Max Number of Iterations", 10, 60, 30, step=5,
                                  help="Reduce this value for fine-granularity segmentation.")
