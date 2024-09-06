@@ -488,9 +488,9 @@ class Cabana:
                 color_result = color_img.copy()
                 for circle in final_circles:
                     final_result = cv2.circle(final_result, (int(circle[1]), int(circle[0])),
-                                              int(circle[2]), (255, 255, 0), 1)
+                                              int(circle[2]), (0, 255, 255), 2)
                     color_result = cv2.circle(color_result, (int(circle[1]), int(circle[0])),
-                                              int(circle[2]), (255, 255, 0), 1)
+                                              int(circle[2]), (0, 255, 255), 2)
                 cv2.imwrite(join_path(gap_result_dir, os.path.splitext(img_name)[0] + "_GapImage.png"), final_result)
                 cv2.imwrite(join_path(self.export_dir, os.path.splitext(img_name)[0],
                                       os.path.splitext(img_name)[0] + "_GapImage.png"), color_result)
