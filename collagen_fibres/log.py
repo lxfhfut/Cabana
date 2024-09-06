@@ -88,7 +88,7 @@ class Log:
                                           int(t_list[2]))
                     now = datetime.datetime(int(now_list[0]), int(now_list[1]), int(now_list[2]))
                     if (now - t).days > 30:  # longer than 30 days
-                        self.delete_logs()
+                        self.delete_logs(file_path)
                 if len(file_list) > 30:  # log file number larger than 30
                     file_list = file_list[0:-4]
                     for i in file_list:
