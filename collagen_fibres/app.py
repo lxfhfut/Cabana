@@ -226,7 +226,7 @@ st.markdown(css, unsafe_allow_html=True)
 
 args = parse_args()
 yml_data = yaml.safe_load(Path(os.path.join(os.path.dirname(__file__), "default_params.yml")).read_text())
-print(Path(os.path.join(os.path.dirname(__file__), "default_params.yml")))
+# print(Path(os.path.join(os.path.dirname(__file__), "default_params.yml")))
 prompt = st.subheader(":blue[Upload an image to try out parameters!]")
 with st.sidebar:
     st.title(':red[Parameter Selection]')
@@ -266,7 +266,7 @@ with st.sidebar:
                                help="Increase line widths to detect thicker fibers.")
         line_step = st.slider("Line Step (pixels)", 1, 5, 2, help="Reduce this value to detect more fibers.")
         contrast = st.slider("Contrast", 0, 255, (100, 200), help="Reduce the values if fibre contrast is low.")
-        min_length = st.slider("Minimum Branch Length", 1, 50, 5,
+        min_length = st.slider("Minimum Line Length", 1, 50, 5,
                                help="Fibers shorter than this length will be ignored.")
 
         sidebar_cols = st.columns([0.5, 0.5])
@@ -282,7 +282,7 @@ with st.sidebar:
         yml_data["Detection"]["Line Width Step"] = actual_line_step
         yml_data["Detection"]["Low Contrast"] = contrast[0]
         yml_data["Detection"]["High Contrast"] = contrast[1]
-        yml_data["Detection"]["Minimum Branch Length"] = min_length
+        yml_data["Detection"]["Minimum Line Length"] = min_length
         yml_data["Detection"]["Dark Line"] = dark_line
         yml_data["Detection"]["Extend Line"] = extend
         # yml_data["Detection"]["Correct Position"] = correct
@@ -313,7 +313,7 @@ with st.sidebar:
 
 right_cols = st.columns([0.8, 0.2])
 yaml_content = yaml.dump(yml_data)
-print(yml_data)
+
 right_cols[1].download_button(
     label="Export Parameters",
     data=yaml_content.encode("utf-8"),

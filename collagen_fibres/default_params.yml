@@ -19,7 +19,8 @@ Detection:
   Low Contrast: 100
   High Contrast: 200
   Extend Line: False
-  Minimum Branch Length: 5
+  Minimum Line Length: 5
+  Maximum Line Length: 0
 
 Quantification:
   Maximum Display HDM: 230

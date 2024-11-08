@@ -336,7 +336,7 @@ class Cabana:
                 'Lacunarity': lacunarities,
                 'Total Length (µm)': total_lengths,
                 'Endpoints': end_points,
-                'HGU (µm)': growth_units,
+                'Avg Length (µm)': growth_units,
                 'Branchpoints': branch_points,
                 'Box-Counting Fractal Dimension': frac_dims,
                 'Total Image Area (µm²)': total_areas
