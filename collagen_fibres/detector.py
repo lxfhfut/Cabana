@@ -828,6 +828,7 @@ class FibreDetector:
 
     def get_results(self):
         all_contour_points, all_width_left, all_width_right = [], [], []
+        int_width_img = np.zeros(self.image.shape[:2], dtype=np.uint8)
         for cont in self.contours:
             num_points = cont.num
             # last_w_r, last_w_l = 0, 0
@@ -840,6 +841,7 @@ class FibreDetector:
 
                 px_r, py_r = px + cont.width_r[j] * nx, py + cont.width_r[j] * ny
                 px_l, py_l = px - cont.width_l[j] * nx, py - cont.width_l[j] * ny
+                int_width_img[int(py), int(px)] = int(cont.width_r[j] + cont.width_l[j])
 
                 # if last_w_r > 0 and cont.width_r[j] > 0:
                 width_right.append([round(px_r), round(py_r)])
@@ -873,7 +875,7 @@ class FibreDetector:
             mask = ski.draw.polygon2mask((height, width), poly_points[:, [1, 0]])
             binary_widths[mask] = 0
 
-        return contour_img, width_img, binary_contours, binary_widths
+        return contour_img, width_img, binary_contours, binary_widths, int_width_img
 
     def save_results(self, save_dir=None, make_binary=True, draw_junc=False, draw_width=False):
         all_contour_points, all_width_left, all_width_right = [], [], []

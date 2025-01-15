@@ -188,7 +188,7 @@ class Cabana:
                             max_len=max_len)
         for img_path in tqdm(glob(join_path(self.roi_dir, '*.png')), bar_format=read_bar_format):
             det.detect_lines(img_path)
-            contour_img, width_img, binary_contours, binary_widths = det.get_results()
+            contour_img, width_img, binary_contours, binary_widths, int_width_img = det.get_results()
 
             ori_img_name = os.path.basename(img_path)
             name_wo_ext = ori_img_name[:ori_img_name.rindex('.')]
@@ -209,6 +209,8 @@ class Cabana:
                 join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_mask.png"), contour_img)
             iio.imwrite(
                 join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_width.png"), width_img)
+            iio.imwrite(
+                join_path(self.color_dir, name_wo_ext, name_wo_ext + "_gray_width.png"), int_width_img)
 
     def analyze_orientations(self):
         orient_analyzer = OrientationAnalyzer(2.0)
