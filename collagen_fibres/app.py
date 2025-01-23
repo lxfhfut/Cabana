@@ -339,7 +339,7 @@ if image_path is not None:
                             min_len=min_length)
 
         det.detect_lines(image)
-        _, width_image, binary_contours, _ = det.get_results()
+        _, width_image, binary_contours, _, _ = det.get_results()
         # st.balloons()
         cols[1].image(width_image, clamp=True, caption="Fibre Image", output_format="PNG")
 
