@@ -293,9 +293,9 @@ class Cabana:
         max_curve_win = int(self.args["Quantification"]["Maximum Curvature Window"])
         curve_win_step = int(self.args["Quantification"]["Curvature Window Step"])
 
-        Log.logger.info(f"Min skeleton size={min_skel_size} px, "
-                        f"Min branch length={min_branch_len} px, "
-                        f"Min hole area={min_hole_area} px²")
+        Log.logger.info(f"Min skeleton size = {min_skel_size} px, "
+                        f"Min branch length = {min_branch_len} px, "
+                        f"Min hole area = {min_hole_area} px²")
 
         # fibre detection returns fibres in black color,
         # so dark_line is set to "True" for skeleton analysis

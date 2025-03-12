@@ -7,11 +7,13 @@ from glob import glob
 from pathlib import Path
 from utils import split2batches, contains_oversized
 from utils import create_folder, join_path, get_img_paths
+from version_info import get_version_info
 from cabana import Cabana
 
 from tkinter import *
 from tkinter import filedialog
-import torch
+import getpass
+import datetime
 from log import Log
 
 
@@ -252,11 +254,38 @@ class BatchProcessor:
                 ckpt.write('Ignore Large,{}\n'.format(str(self.ignore_large)))
 
         # export version info before processing,
-        # so that version info is available even if the subsequent analysis goes wrong
+        # # so that version info is available even if the subsequent analysis goes wrong
         version_info_file = join_path(self.output_folder, 'version_params.yaml')
+        # with open(version_info_file, 'w') as file:
+        #     try:
+        #         yaml.dump(self.args, file)
+        #     except yaml.YAMLError as exc:
+        #         Log.logger.error(exc)
         with open(version_info_file, 'w') as file:
             try:
-                yaml.dump(self.args, file)
+                # Get metadata
+                username = getpass.getuser()
+                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                version_info = get_version_info()
+
+                # Create metadata dictionary
+                metadata = {
+                    "execution_info": {
+                        "user": username,
+                        "datetime": timestamp,
+                        "version": version_info["version"],
+                        "git_info": {
+                            "commit": version_info.get("git_hash", "unknown"),
+                            "branch": version_info.get("git_branch", "unknown"),
+                            "tag": version_info.get("latest_tag", "unknown")
+                        }
+                    }
+                }
+
+                # Write metadata first, then args
+                yaml.dump(metadata, file, default_flow_style=False)
+                file.write("\n# Program Arguments\n")
+                yaml.dump(self.args, file, default_flow_style=False)
             except yaml.YAMLError as exc:
                 Log.logger.error(exc)
 
