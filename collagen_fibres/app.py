@@ -224,6 +224,14 @@ css = '''
 </style>
 '''
 st.markdown(css, unsafe_allow_html=True)
+# Create two columns
+col1, col2 = st.columns(2)
+
+# Create empty placeholders in each column
+placeholder1 = col1.empty()
+placeholder2 = col2.empty()
+if 'image' not in st.session_state:
+    st.session_state.image = None
 
 args = parse_args()
 yml_data = yaml.safe_load(Path(os.path.join(os.path.dirname(__file__), "default_params.yml")).read_text())
@@ -235,6 +243,18 @@ with st.sidebar:
     # Add an "Open" button to upload the image file
     image_path = st.file_uploader(" ", type=["png", "jpg", "jpeg", "tiff", "tif"])
 
+    if image_path is not None:
+        prompt.empty()
+        image = iio.imread(image_path)
+        if image.dtype == np.uint16:
+            warnings.warn(f"The uploaded image is 16-bit. Converting to 8-bit.")
+            lower = np.percentile(image, 2)
+            upper = np.percentile(image, 98)
+            image = np.clip(image, lower, upper)  # clip to 2nd and 98th percentile to remove outliers
+            image = (((image - lower) / (upper - lower)) * 255.0).astype(np.uint8)
+
+        st.session_state.image = image
+
     tab1, tab2, tab3 = st.tabs([":violet-background[Segmentation]",
                                 ":violet-background[Detection]",
                                 ":violet-background[Gap Analysis]"])
@@ -244,7 +264,7 @@ with st.sidebar:
                                                help="Select the color you want to segment.")
         color_cols[1].markdown(f"Normalized hue: :red[{hex_to_hue(hex_color):.2f}]",
                                help="Normalized hue value between 0 and 1 for the selected color.")
-        color_thresh = st.slider("Color Threshold", 0.0, 1.0, 0.25, step=0.01,
+        color_thresh = st.slider("Color Threshold", 0.0, 1.0, 0.22, step=0.01,
                                  help="Lower this threshold to preserve more areas of interest.")
         num_labels = st.slider("Number of Labels", 16, 96, 32, step=4,
                                help="Increase this value for fine-granularity segmentation.")
@@ -256,6 +276,8 @@ with st.sidebar:
         yml_data["Segmentation"]["Normalized Hue Value"] = float("{:.2f}".format(hex_to_hue(hex_color)))
         if 'seg_clicked' not in st.session_state:
             st.session_state.seg_clicked = False
+        if 'seg_image' not in st.session_state:
+            st.session_state.seg_image = None
 
         def seg_click_button():
             st.session_state.seg_clicked = True
@@ -289,6 +311,11 @@ with st.sidebar:
         # yml_data["Detection"]["Correct Position"] = correct
         if 'det_clicked' not in st.session_state:
             st.session_state.det_clicked = False
+        if 'det_mask' not in st.session_state:
+            st.session_state.det_mask = None
+
+        if st.session_state.seg_image is not None:
+            placeholder1.image(st.session_state.seg_image[:,:,[2,1,0]], clamp=True, caption="Segmented Image")
 
         def det_click_button():
             st.session_state.det_clicked = True
@@ -301,6 +328,9 @@ with st.sidebar:
         yml_data["Gap Analysis"]["Minimum Gap Diameter"] = min_gap_diameter
         if 'gap_clicked' not in st.session_state:
             st.session_state.gap_clicked = False
+
+        if st.session_state.det_mask is not None:
+            placeholder1.image(st.session_state.det_mask, clamp=True, caption="Fibre Image")
 
         def gap_click_button():
             st.session_state.gap_clicked = True
@@ -323,19 +353,23 @@ right_cols[1].download_button(
     type="primary"
 )
 
-#  Read the uploaded image
-if image_path is not None:
-    prompt.empty()
-    cols = st.columns(2)
-    image = iio.imread(image_path)
-    if image.dtype == np.uint16:
-        warnings.warn(f"The uploaded image is 16-bit. Converting to 8-bit.")
-        lower = np.percentile(image, 2)
-        upper = np.percentile(image, 98)
-        image = np.clip(image, lower, upper)  # clip to 2nd and 98th percentile to remove outliers
-        image = (((image - lower) / (upper - lower)) * 255.0).astype(np.uint8)
+if st.session_state.image is not None:
+    placeholder1.image(st.session_state.image, clamp=True, caption="Original Image")
 
-    cols[0].image(image, clamp=True, caption="Original Image")
+    if st.session_state.seg_clicked:
+        setattr(args, 'num_channels', num_labels)
+        setattr(args, 'max_iter', max_num_itrs)
+        setattr(args, 'hue_value', hex_to_hue(hex_color))
+        setattr(args, 'rt', color_thresh)
+        seg_bar = st.progress(0.0, "Segmentation in progress. Please wait.")
+        seg_img = segment_image(image[:, :, [2, 1, 0]], args, seg_bar)
+        seg_bar.empty()
+        # st.balloons()
+        placeholder2.image(cv2.cvtColor(seg_img, cv2.COLOR_BGR2RGB),
+                           clamp=True, caption="Segmented Image", output_format="PNG")
+        st.session_state.seg_clicked = False
+        st.session_state.seg_image = seg_img
+        st.session_state.image = seg_img
 
     if st.session_state.det_clicked:
         det = FibreDetector(line_widths=np.arange(line_width[0], line_width[1], actual_line_step),
@@ -346,41 +380,40 @@ if image_path is not None:
                             correct_pos=False,
                             min_len=min_length)
 
-        det.detect_lines(image)
+        # Determine which image to use and what to display
+        input_image = image if st.session_state.seg_image is None else st.session_state.seg_image
+        caption = "Original Image" if st.session_state.seg_image is None else "Segmented Image"
+        detection_message = f"Detecting fibres in the {caption.lower()}..."
+
+        # Update placeholders
+        placeholder1.image(input_image[:,:,[2,1,0]], clamp=True, caption=caption)
+        placeholder2.write(detection_message)
+
+        # Detect lines on the appropriate image
+        det.detect_lines(input_image)
+
         _, width_image, binary_contours, _, _ = det.get_results()
         # st.balloons()
-        cols[1].image(width_image, clamp=True, caption="Fibre Image", output_format="PNG")
-
-        im = Image.fromarray(binary_contours)
-        with BytesIO() as buf:
-            im.save(buf, format='PNG')
-            data = buf.getvalue()
-        st.download_button(label="Download binary image of detected fibres", data=data, file_name="binary_fibres.png", type="primary")
+        placeholder2.image(width_image[:,:,[2,1,0]], clamp=True, caption="Fibre Image", output_format="PNG")
+        # im = Image.fromarray(binary_contours)
+        # with BytesIO() as buf:
+        #     im.save(buf, format='PNG')
+        #     data = buf.getvalue()
+        # st.download_button(label="Download binary image of detected fibres", data=data, file_name="binary_fibres.png", type="primary")
         st.session_state.det_clicked = False
-
-    if st.session_state.seg_clicked:
-        setattr(args, 'num_channels', num_labels)
-        setattr(args, 'max_iter', max_num_itrs)
-        setattr(args, 'hue_value', hex_to_hue(hex_color))
-        setattr(args, 'rt', color_thresh)
-        seg_bar = st.progress(0.0, "Segmentation in progress. Please wait.")
-        seg_img = segment_image(cv2.cvtColor(image, cv2.COLOR_RGB2BGR), args, seg_bar)
-        seg_bar.empty()
-        st.balloons()
-        cols[1].image(cv2.cvtColor(seg_img, cv2.COLOR_BGR2RGB),
-                      clamp=True, caption="Segmented Image", output_format="PNG")
-        st.session_state.seg_clicked = False
+        st.session_state.det_mask = binary_contours
 
     if st.session_state.gap_clicked:
-        if len(np.unique(image)) != 2:
+        input_image = image if st.session_state.det_mask is None else st.session_state.det_mask
+        detection_message = f"Analyzing gaps in fibre image..."
+        placeholder1.image(input_image, clamp=True, caption="Fibre Image")
+        if len(np.unique(input_image)) != 2:
             st.warning('Gap analysis is only supported for binary images. Please upload a binary image!', icon="⚠️")
         else:
             gap_bar = st.progress(0.0, "Gap analysis in progress. Please wait.")
-            gap_img = analyze_gaps(image, min_gap_diameter, gap_bar)
+            gap_img = analyze_gaps(input_image, min_gap_diameter, gap_bar)
             gap_bar.empty()
             # st.balloons()
-            cols[1].image(cv2.cvtColor(gap_img, cv2.COLOR_BGR2RGB),
-                          clamp=True, caption="Gap Image", output_format="PNG")
+            placeholder2.image(cv2.cvtColor(gap_img, cv2.COLOR_BGR2RGB),
+                               clamp=True, caption="Gap Image", output_format="PNG")
         st.session_state.gap_clicked = False
-
-
