@@ -1,5 +1,6 @@
 import os
 import time
+import warnings
 
 import yaml
 import csv
@@ -96,7 +97,15 @@ class Cabana:
             for img_path in path_batches[self.batch_idx]:
                 img_name = os.path.basename(img_path)
                 img_name = sanitize_filename(img_name)  # replace special characters in image names with "_"
-                img = cv2.imread(img_path)
+                img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
+                if img.dtype == np.uint16:
+                    warnings.warn(f"Image {img_path} is 16-bit. Converting to 8-bit.")
+                    lower = np.percentile(img, 2)
+                    upper = np.percentile(img, 98)
+                    img = np.clip(img, lower, upper)  # clip to 2nd and 98th percentile to remove outliers
+
+                    # Scale to full 8-bit range
+                    img = (((img - lower) / (upper - lower)) * 255.0).astype(np.uint8)
 
                 # if gray image convert to rgb
                 img = np.repeat(img[:, :, np.newaxis], 3, axis=2) if len(img.shape) < 3 else img

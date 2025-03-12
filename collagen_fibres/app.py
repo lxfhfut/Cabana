@@ -5,6 +5,7 @@ import torch
 import imutils
 import convcrf
 import argparse
+import warnings
 import numpy as np
 from PIL import Image
 import streamlit as st
@@ -327,6 +328,13 @@ if image_path is not None:
     prompt.empty()
     cols = st.columns(2)
     image = iio.imread(image_path)
+    if image.dtype == np.uint16:
+        warnings.warn(f"The uploaded image is 16-bit. Converting to 8-bit.")
+        lower = np.percentile(image, 2)
+        upper = np.percentile(image, 98)
+        image = np.clip(image, lower, upper)  # clip to 2nd and 98th percentile to remove outliers
+        image = (((image - lower) / (upper - lower)) * 255.0).astype(np.uint8)
+
     cols[0].image(image, clamp=True, caption="Original Image")
 
     if st.session_state.det_clicked:
