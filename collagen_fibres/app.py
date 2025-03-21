@@ -75,7 +75,7 @@ def parse_args():
                         help='The smallest allowable object size')
     parser.add_argument('--max_size', default=2048, type=int,
                         help='The maximal allowable image size')
-    parser.add_argument('--dark_line', default=True, type=bool, help='Used to set background color')
+    parser.add_argument('--white_background', default=True, type=bool, help='Used to set background color')
     parser.add_argument('--input', type=str, help='Input image path', required=False)
     args, _ = parser.parse_known_args()
     return args
