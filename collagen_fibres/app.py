@@ -16,6 +16,7 @@ from skimage import measure
 from detector import FibreDetector
 from torch.autograd import Variable
 from segmenter import generate_rois
+from streamlit.components.v1 import html
 from models import BackBone, LightConv3x3
 from utils import mean_image, cal_greenness
 from skimage.feature import peak_local_max
@@ -74,6 +75,7 @@ def parse_args():
                         help='The smallest allowable object size')
     parser.add_argument('--max_size', default=2048, type=int,
                         help='The maximal allowable image size')
+    parser.add_argument('--dark_line', default=True, type=bool, help='Used to set background color')
     parser.add_argument('--input', type=str, help='Input image path', required=False)
     args, _ = parser.parse_known_args()
     return args
@@ -154,7 +156,7 @@ def segment_image(ori_img, args, pb):
     thresholded = remove_small_holes(thresholded, args.min_size)
     thresholded = remove_small_objects(thresholded, args.min_size)
     mask = cv2.resize(255 * (thresholded.astype("uint8")), (ori_width, ori_height), cv2.INTER_NEAREST)
-    roi_img = generate_rois(ori_img, (mask > 128).astype("uint8")*255)
+    roi_img = generate_rois(ori_img, (mask > 128).astype("uint8")*255, args.white_background)
     return roi_img if not rotated else cv2.rotate(roi_img, cv2.ROTATE_90_CLOCKWISE)
 
 
@@ -264,16 +266,20 @@ with st.sidebar:
                                                help="Select the color you want to segment.")
         color_cols[1].markdown(f"Normalized hue: :red[{hex_to_hue(hex_color):.2f}]",
                                help="Normalized hue value between 0 and 1 for the selected color.")
+
         color_thresh = st.slider("Color Threshold", 0.0, 1.0, 0.22, step=0.01,
                                  help="Lower this threshold to preserve more areas of interest.")
         num_labels = st.slider("Number of Labels", 16, 96, 32, step=4,
                                help="Increase this value for fine-granularity segmentation.")
         max_num_itrs = st.slider("Max Number of Iterations", 10, 60, 30, step=5,
                                  help="Reduce this value for fine-granularity segmentation.")
+        white_background = st.checkbox("White Background", value=True,
+                                       help="Set background to white after segmentation.")
         yml_data["Segmentation"]["Number of Labels"] = num_labels
         yml_data["Segmentation"]["Max Iterations"] = max_num_itrs
         yml_data["Segmentation"]["Color Threshold"] = color_thresh
         yml_data["Segmentation"]["Normalized Hue Value"] = float("{:.2f}".format(hex_to_hue(hex_color)))
+
         if 'seg_clicked' not in st.session_state:
             st.session_state.seg_clicked = False
         if 'seg_image' not in st.session_state:
@@ -285,7 +291,7 @@ with st.sidebar:
         tab_cols[1].button('Segment', on_click=seg_click_button, type="primary")
 
     with tab2:
-        line_width = st.slider("Line Width (pixels)", 1, 15, (1, 3),
+        line_width = st.slider("Line Width (pixels)", 1, 15, (3, 5),
                                help="Increase line widths to detect thicker fibers.")
         line_step = st.slider("Line Step (pixels)", 1, 5, 2, help="Reduce this value to detect more fibers.")
         contrast = st.slider("Contrast", 0, 255, (100, 200), help="Reduce the values if fibre contrast is low.")
@@ -361,6 +367,7 @@ if st.session_state.image is not None:
         setattr(args, 'max_iter', max_num_itrs)
         setattr(args, 'hue_value', hex_to_hue(hex_color))
         setattr(args, 'rt', color_thresh)
+        setattr(args, 'white_background', white_background)
         seg_bar = st.progress(0.0, "Segmentation in progress. Please wait.")
         seg_img = segment_image(image[:, :, [2, 1, 0]], args, seg_bar)
         seg_bar.empty()

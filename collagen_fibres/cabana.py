@@ -84,6 +84,7 @@ class Cabana:
         setattr(self.seg_args, 'rt', float(self.args['Segmentation']["Color Threshold"]))
         setattr(self.seg_args, 'max_size', int(self.args['Segmentation']["Max Size"]))
         setattr(self.seg_args, 'min_size', int(self.args['Segmentation']["Min Size"]))
+        setattr(self.seg_args, 'white_background', self.args['Detection']["Dark Line"])
 
     def remove_large_images(self):
         img_paths = get_img_paths(self.input_folder)
@@ -238,6 +239,23 @@ class Cabana:
             img_names.append(ori_img_name)
             name_wo_ext = ori_img_name[:ori_img_name.rindex('.')]
             mask_roi = iio.imread(join_path(self.bin_dir, name_wo_ext[:-4]+"_mask.png"))
+            if np.sum(mask_roi) == 0:
+                alignments.append(0)
+                variances.append(0)
+                alignments_roi.append(0)
+                variances_roi.append(0)
+                alignments_hdm.append(0)
+                variances_hdm.append(0)
+                alignments_width.append(0)
+                variances_width.append(0)
+                iio.imwrite(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Energy.tif"), mask_roi)
+                iio.imwrite(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Coherency.tif"), mask_roi)
+                iio.imwrite(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Orientation.tif"), mask_roi)
+                iio.imwrite(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Color_Survey.tif"), mask_roi)
+                iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_orient_vf.png"), mask_roi)
+                iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_angular_hist.png"), mask_roi)
+                continue
+
             mask_hdm = (iio.imread(join_path(self.hdm_dir, name_wo_ext[:-4]+"_roi.png")) > 0).astype(np.uint8)*255
             mask_width = 255 - iio.imread(join_path(self.export_dir, name_wo_ext[:-4]+"_roi", name_wo_ext[:-4]+"_roi_Width.png"))
             orient_analyzer.compute_orient(img_path)
@@ -400,6 +418,9 @@ class Cabana:
             for img_path in img_paths:
                 img_mask = cv2.imread(img_path, 0)
                 area_roi = np.sum(img_mask > 128).astype(float)  # ROI area
+                if area_roi == 0:
+                    writer.writerow([0] * 8)
+                    continue
                 percent_roi = area_roi / img_mask.shape[0] / img_mask.shape[1]  # % ROI area
                 name = os.path.basename(img_path)
                 ori_img = iio.imread(join_path(self.eligible_dir, name[:-9] + ".png"))
@@ -982,9 +1003,22 @@ class Cabana:
             Path(join_path(self.color_dir, name_wo_ext)).mkdir(parents=True, exist_ok=True)
 
             rgb_img = iio.imread(ori_img_path)
-            # roi_img = iio.imread(join_path(self.bin_dir, name_wo_ext[:-4] + "_mask.png"))
-
             mask_img = 255 - iio.imread(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Mask.png"))
+            if np.sum(mask_img) == 0:
+                iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_mask.png"), np.zeros_like(rgb_img))
+                iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_skeleton.png"), np.zeros_like(rgb_img))
+                iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_energy.png"), np.zeros_like(rgb_img))
+                iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_coherency.png"), np.zeros_like(rgb_img))
+                iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_orientation.png"), np.zeros_like(rgb_img))
+                iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_length.png"), np.zeros_like(rgb_img))
+                iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_orient_color_survey.png"), np.zeros_like(rgb_img))
+                curve_paths = glob(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Curve_Map_*"))
+                for curve_path in curve_paths:
+                    curve_name_wo_ext = os.path.basename(curve_path)[:-4]
+                    suffix = curve_name_wo_ext[len(name_wo_ext + "_Curve_Map"):]
+                    iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_curve" + suffix + ".png"), np.zeros_like(rgb_img))
+                continue
+
             mask_img = np.repeat(mask_img[:, :, np.newaxis], 3, axis=2)
             mask_glow = mask_color_map(rgb_img, mask_img)
 
@@ -1002,24 +1036,10 @@ class Cabana:
             orient_map = iio.imread(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Orientation.tif"))
             length_map = iio.imread(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Length_Map.tif"))
 
-            # bg_index_pos = np.where(roi_img < 128)
-            # energy_map[bg_index_pos[0], bg_index_pos[1]] = 0
-            # cohere_map[bg_index_pos[0], bg_index_pos[1]] = 0
-            # orient_map[bg_index_pos[0], bg_index_pos[1]] = 0
             overlay_colorbar(rgb_img, energy_map,
                              join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_energy.png"),
                              clabel="Normalized Energy", mode="overlay")
-            # sbs_color_map(
-            #     rgb_img, energy_map,
-            #     join_path(self.color_dir, name_wo_ext,
-            #               name_wo_ext + "_color_energy.png"), cbar_label="Normalized Energy")
-            # sbs_color_map(
-            #     rgb_img, orient_map,
-            #     join_path(self.color_dir, name_wo_ext,
-            #               name_wo_ext + "_color_orientation.png"), cbar_label="Orientation")
-            # overlay_colorbar(rgb_img, orient_map,
-            #                  join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_orientation.png"),
-            #                  clabel="Orientation (rad)", cmap="hsv", mode="overlay", rad=True)
+
             color_survey_with_colorbar(orient_map, np.ones_like(orient_map), np.ones_like(orient_map),
                                        join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_orientation.png"),
                                        clabel="Orientation (rad)")
@@ -1028,12 +1048,6 @@ class Cabana:
                              join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_coherency.png"),
                              clabel="Coherency", mode="overlay")
 
-            # sbs_color_map(
-            #     rgb_img, cohere_map,
-            #     join_path(self.color_dir, name_wo_ext,
-            #               name_wo_ext + "_color_coherency.png"), cbar_label="Coherency")
-
-            # color_length = info_color_map(rgb_img, length_map, cbar_label="Length (µm)", cmap="plasma", radius=1)
             save_path = join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_length.png")
             overlay_colorbar(rgb_img, length_map, save_path,
                              clabel="Length (µm)", cmap='plasma', dpi=200, font_size=10)
@@ -1046,21 +1060,7 @@ class Cabana:
                 save_path = join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_curve" + suffix + ".png")
                 overlay_colorbar(rgb_img, curve_map, save_path,
                                  clabel="Curliness", cmap='plasma', dpi=200, font_size=10)
-                # color_curve = info_color_map(rgb_img, curve_map, cbar_label="Curliness", cmap="plasma", radius=1)
-                # Image.fromarray(color_curve).save(
-                #     join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_curve" + suffix + ".png"))
 
-            # width_img = 255 - iio.imread(
-            #     join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Width.png"))
-            # width_img = np.repeat(width_img[:, :, np.newaxis], 3, axis=2)
-            # width_map = width_color_map(rgb_img, width_img, mask_img)
-            # Image.fromarray(width_map).save(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_width.png"))
-
-            # color_survey = iio.imread(
-            #     join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Color_Survey.tif"))
-            # # color_survey[bg_index_pos[0], bg_index_pos[1], :] = [228, 228, 228]
-            # sbs_color_survey(rgb_img, color_survey, join_path(self.color_dir,
-            #                                                   name_wo_ext, name_wo_ext + "_orient_color_survey.png"))
             color_survey_with_colorbar(orient_map, cohere_map, cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY) / 255.0,
                                        join_path(self.color_dir,
                                                  name_wo_ext,

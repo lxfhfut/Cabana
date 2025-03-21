@@ -42,6 +42,7 @@ def parse_args():
                         help='The smallest allowable object size')
     parser.add_argument('--max_size', default=2048, type=int,
                         help='The maximal allowable image size')
+    parser.add_argument('--white_background', default=True, type=bool, help='Set background color to white')
     # parser.add_argument('--disabled', default=False, help='disable segmentation')
     parser.add_argument('--save_video', default=False,  action='store_true',
                         help='save intermediate results as video')
@@ -166,7 +167,7 @@ def segment_single_image(args):
         # roi_img[:, :, 0] = np.multiply(roi_img[:, :, 0], mask) + (1 - mask) * 228
         # roi_img[:, :, 1] = np.multiply(roi_img[:, :, 1], mask) + (1 - mask) * 228
         # roi_img[:, :, 2] = np.multiply(roi_img[:, :, 2], mask) + (1 - mask) * 228
-        roi_img = generate_rois(ori_img, (mask > 128).astype("uint8")*255)
+        roi_img = generate_rois(ori_img, (mask > 128).astype("uint8")*255, args.white_background)
 
         # mask = (mask*255).astype("uint8")
 
@@ -211,12 +212,14 @@ def visualize_fibres(img, mask, result_path, thickness=3, border_color=[255, 255
     # plt.close()
 
 
-def generate_rois(img, roi, thickness=3, background_color=[228, 228, 228]):
+def generate_rois(img, roi, white_background=True, thickness=3):
     if roi.ndim > 2 and roi.shape[2] > 1:
         roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
     if img.shape[:2] != roi.shape:
         roi = cv2.resize(roi, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
+
+    background_color = [228, 228, 228] if white_background else [0, 0, 0]
 
     roi = cv2.bitwise_not(roi)
     kernel = np.ones((thickness, thickness), np.uint8)

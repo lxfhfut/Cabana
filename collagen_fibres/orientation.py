@@ -109,7 +109,10 @@ class OrientationAnalyzer:
         return 1.0 / (np.sqrt(kl_divergence) + 1.0 + np.finfo(float).eps)
 
     def draw_angular_hist(self, N=8, mask=None):
-        mask = np.ones_like(self.gray, dtype=bool)if mask is None else img_as_bool(mask)
+        mask = np.ones_like(self.gray, dtype=bool) if mask is None else img_as_bool(mask)
+        if mask.sum() == 0:
+            return np.zeros((mask.shape[0], mask.shape[1], 4), dtype=np.uint8)
+
         fig = Figure(figsize=(4, 4), dpi=200)
         ax = fig.add_subplot(polar=True)
 
