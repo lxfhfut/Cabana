@@ -269,9 +269,9 @@ with st.sidebar:
 
         color_thresh = st.slider("Color Threshold", 0.0, 1.0, 0.22, step=0.01,
                                  help="Lower this threshold to preserve more areas of interest.")
-        num_labels = st.slider("Number of Labels", 16, 96, 32, step=4,
+        num_labels = st.slider("Number of Labels", 8, 96, 32, step=1,
                                help="Increase this value for fine-granularity segmentation.")
-        max_num_itrs = st.slider("Max Number of Iterations", 10, 60, 30, step=5,
+        max_num_itrs = st.slider("Max Number of Iterations", 10, 100, 30, step=1,
                                  help="Reduce this value for fine-granularity segmentation.")
         white_background = st.checkbox("White Background", value=True,
                                        help="Set background to white after segmentation.")
