@@ -16,11 +16,11 @@ rem Using call is required here, see: https://stackoverflow.com/questions/246781
 call %CONDAPATH%\Scripts\activate.bat %ENVPATH%
 
 rem run program update is needed
-rem cd "C:\Program Files\Cabana\collagen_fibres"
-rem python "C:\Program Files\Cabana\collagen_fibres\version_info.py"
+rem cd "C:\Program Files\P-Cabana\collagen_fibres"
+rem python "C:\Program Files\P-Cabana\collagen_fibres\version_info.py"
 
 rem Run a python script in that environment
-python "D:\P-Cabana\collagen_fibres\batch_processor.py"
+streamlit run "D:\P-Cabana\collagen_fibres\app.py"
 
 rem Deactivate the environment
 call conda deactivate
