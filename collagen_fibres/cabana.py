@@ -1077,17 +1077,19 @@ class Cabana:
     def run(self):
         self.initialize_params()
         self.remove_large_images()
-        self.generate_rois()
-
-        if self.args["Configs"]["Quantification"]:
-            self.quantify_images()
-            self.visualize_fibres()
-            self.calc_fibre_areas()
-            if self.args["Configs"]["Gap Analysis"]:
-                self.analyze_all_gaps()
-                self.analyze_intra_gaps()
-            self.combine_statistics()
-            self.normalize_statistics()
-            self.generate_color_maps()
+        if len(get_img_paths(self.eligible_dir)) == 0:
+            Log.logger.warning("No eligible images found. No further analysis will be conducted.")
         else:
-            Log.logger.info('Segmentation is done. No further analysis will be conducted.')
+            self.generate_rois()
+            if self.args["Configs"]["Quantification"]:
+                self.quantify_images()
+                self.visualize_fibres()
+                self.calc_fibre_areas()
+                if self.args["Configs"]["Gap Analysis"]:
+                    self.analyze_all_gaps()
+                    self.analyze_intra_gaps()
+                self.combine_statistics()
+                self.normalize_statistics()
+                self.generate_color_maps()
+            else:
+                Log.logger.info('Segmentation is done. No further analysis will be conducted.')
