@@ -255,6 +255,26 @@ def sbs_color_map(img, info_map, save_name, cbar_label="Length", cmap="coolwarm"
 
 
 def color_survey_with_colorbar(orient, coherency, energy, save_path, clabel="Color Survey", dpi=100, font_size=12):
+    """
+    Create a color survey visualization with colorbar using a thread-safe approach.
+
+    Parameters:
+    -----------
+    orient : numpy.ndarray
+        Orientation data in the range [-pi/2, pi/2]
+    coherency : numpy.ndarray
+        Coherency data in the range [0, 1]
+    energy : numpy.ndarray
+        Energy data in the range [0, 1]
+    save_path : str
+        Path to save the output image
+    clabel : str, optional
+        Colorbar label, default is "Color Survey"
+    dpi : int, optional
+        Dots per inch for the figure, default is 100
+    font_size : int, optional
+        Font size for labels, default is 12
+    """
     # Normalize orientation to [0, 1] then scale to [0, 179] for hue
     hue = (((orient + np.pi / 2) / np.pi) * 179).astype(np.uint8)
 
@@ -265,28 +285,44 @@ def color_survey_with_colorbar(orient, coherency, energy, save_path, clabel="Col
     # Stack the channels to create an HSV image
     hsv_image = np.stack((hue, saturation, value), axis=-1)
 
-    # Convert the HSV image to a BGR image
+    # Convert the HSV image to an RGB image
     colored_img = cv2.cvtColor(hsv_image, cv2.COLOR_HSV2RGB)
 
     height, width = orient.shape[:2]
 
-    fig1 = plt.figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
-    ax1 = fig1.add_subplot()
+    # Create the first figure for the colormap reference - using Figure instead of plt.figure
+    fig1 = Figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
+    canvas1 = FigureCanvasAgg(fig1)
+    ax1 = fig1.add_subplot(111)  # Use 111 for clarity
     img_tmp = ax1.imshow(orient, cmap="hsv")
-    fig2 = plt.figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
-    ax2 = fig2.add_subplot()
+
+    # Create the second figure for the result with colorbar - using Figure instead of plt.figure
+    fig2 = Figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
+    canvas2 = FigureCanvasAgg(fig2)
+    ax2 = fig2.add_subplot(111)
     ax2.imshow(colored_img)
+
+    # Add the colorbar
     divider = make_axes_locatable(ax2)
     cax = divider.append_axes("right", size="5%", pad=0.1)
     cax.tick_params(labelsize=font_size)
     cbar = fig2.colorbar(img_tmp, cax=cax)
     cbar.ax.set_ylabel(clabel, fontsize=font_size)
-    cbar.set_ticks(ticks=[-np.pi/2, -np.pi/4, 0, np.pi/4, np.pi/2],
+    cbar.set_ticks(ticks=[-np.pi / 2, -np.pi / 4, 0, np.pi / 4, np.pi / 2],
                    labels=[r'-$\pi$/2', r'-$\pi$/4', '0', r'$\pi$/4', r'$\pi$/2'])
-    # fig2.patch.set_visible(False)
+
+    # Configure figure appearance
     ax2.axis('off')
+
+    # Draw the canvas and save the figure
+    canvas2.draw()
     fig2.savefig(save_path, format='png', transparent=False, facecolor='white')
-    plt.close('all')
+
+    # Clean up resources - proper way to close figures without using plt
+    fig1.clf()
+    fig2.clf()
+
+    return colored_img
 
 
 def sbs_color_survey(img, info_map, save_name):
@@ -1425,59 +1461,6 @@ def visualize(gray, mag, ny, nx, saliency, gd=5):
     axes[1, 1].set_title("Eigen vectors")
     plt.show()
 
-
-# def overlay_colorbar(rgb_img,
-#                      img,
-#                      save_path,
-#                      clabel="Curvature (degrees)",
-#                      cmap='plasma',
-#                      mode="overwrite",
-#                      dpi=100,
-#                      font_size=12):
-#     height, width = img.shape[:2]
-#     if mode == "overwrite":
-#         colormap = matplotlib.colormaps.get_cmap(cmap)
-#         colored_img = colormap(img / np.max(img))[:, :, :3]
-#         hsv_img = cv2.cvtColor((colored_img * 255).astype(np.uint8), cv2.COLOR_RGB2HSV)
-#         hsv_img[:, :, 2] = (normalize(hsv_img[..., 2], 0, 100) * 255).astype(np.uint8)
-#         colored_img = cv2.cvtColor(hsv_img, cv2.COLOR_HSV2RGB)
-#         bg_index_pos = np.where(img <= 0)
-#         colored_img[bg_index_pos[0], bg_index_pos[1], :] = rgb_img[bg_index_pos[0], bg_index_pos[1], :]
-#     elif mode == "overlay":
-#         gray_img = np.repeat(cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY)[..., None], 3, axis=2)
-#         n_colors = 256
-#         hues = sns.color_palette(cmap, n_colors + 1)
-#
-#         hue_indices = (n_colors * (img / np.max(img))).astype(int)
-#         hues = np.array(hues)
-#
-#         hue_color = np.take(hues, hue_indices, axis=0)
-#         colored_img = (gray_img * hue_color).astype(np.uint8)
-#     elif mode == "weighted":
-#         gray_img = np.repeat(cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY)[..., None], 3, axis=2)
-#         colormap = matplotlib.colormaps.get_cmap(cmap)
-#         colored_img = colormap(img / np.max(img))[:, :, :3]
-#         hsv_img = cv2.cvtColor((colored_img * 255).astype(np.uint8), cv2.COLOR_RGB2HSV)
-#         hsv_img[:, :, 2] = (normalize(hsv_img[..., 2], 0, 100) * 255).astype(np.uint8)
-#         colored_img = cv2.cvtColor(hsv_img, cv2.COLOR_HSV2RGB)
-#         colored_img = cv2.addWeighted(colored_img, 0.3, gray_img, 0.7, 50)
-#
-#     fig1 = plt.figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
-#     ax1 = fig1.add_subplot()
-#     img_tmp = ax1.imshow(img, cmap=cmap)
-#     fig2 = plt.figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
-#     ax2 = fig2.add_subplot()
-#     ax2.imshow(colored_img)
-#     divider = make_axes_locatable(ax2)
-#     cax = divider.append_axes("right", size="5%", pad=0.1)
-#     cax.tick_params(labelsize=font_size)
-#     cbar = fig2.colorbar(img_tmp, cax=cax)
-#     cbar.ax.set_ylabel(clabel, fontsize=font_size)
-#     # fig2.patch.set_visible(False)
-#     ax2.axis('off')
-#     fig2.savefig(save_path, format='png', transparent=False, facecolor='white')
-#     plt.close('all')
-#     return rgb_img
 
 def overlay_colorbar(rgb_img,
                      img,

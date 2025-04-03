@@ -957,7 +957,7 @@ def main():
 
     app = QApplication(sys.argv)
     window = MainWindow()
-    app.setWindowIcon(QIcon("/Users/lxfhfut/Downloads/cabana-logo.png"))
+    app.setWindowIcon(QIcon("../cabana-logo.png"))
     window.show()
     sys.exit(app.exec_())
 
