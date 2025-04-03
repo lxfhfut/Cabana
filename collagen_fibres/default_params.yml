@@ -6,7 +6,7 @@ Configs:
 Segmentation:
   Number of Labels: 48
   Max Iterations: 30
-  Normalized Hue Value: 1.0
+  Normalized Hue Value: 0.96
   Color Threshold: 0.2
   Min Size: 64
   Max Size: 2048
