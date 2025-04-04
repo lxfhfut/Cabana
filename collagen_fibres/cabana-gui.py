@@ -18,7 +18,10 @@ class MainWindow(QMainWindow):
 
         # Set window properties
         self.setWindowTitle("Cabana GUI")
-        self.setMinimumSize(1300, 800)
+        self.setMinimumSize(800, 600)
+
+        # Make window full screen when starting
+        self.showMaximized()  # This will maximize the window to full screen
 
         # Apply Napari-inspired theme to the entire application
         self.set_theme()
@@ -114,7 +117,7 @@ class MainWindow(QMainWindow):
         self.splitter.addWidget(self.image_panel)
 
         # Set initial sizes (adjust as needed)
-        self.splitter.setSizes([400, 900])
+        self.splitter.setSizes([100, 700])
 
         # Add splitter to the main layout
         self.main_layout.addWidget(self.splitter)
@@ -159,7 +162,7 @@ class MainWindow(QMainWindow):
         param_layout.addWidget(param_label)
 
         self.param_file_path = QLabel("Not selected")
-        self.param_file_path.setStyleSheet("color: gray;")
+        self.param_file_path.setStyleSheet("color: gray")
         param_layout.addWidget(self.param_file_path, 1)
 
         self.param_btn = QPushButton("Select")
@@ -231,6 +234,7 @@ class MainWindow(QMainWindow):
         file_dialog.setNameFilter("YAML Files (*.yml *.yaml)")
         file_dialog.setWindowTitle("Select Parameter File")
         file_dialog.setFileMode(QFileDialog.ExistingFile)
+        file_dialog.setDirectory(os.path.expanduser('~/Documents'))
 
         # Style the dialog to match theme
         file_dialog.setStyleSheet(f"""
@@ -244,7 +248,10 @@ class MainWindow(QMainWindow):
             selected_files = file_dialog.selectedFiles()
             if selected_files:
                 self.param_file = selected_files[0]
-                self.param_file_path.setText(os.path.basename(self.param_file))
+                self.param_file_path.setText(
+                    selected_files[0] if len(selected_files[0]) <= 40 else selected_files[0][:16] + "..." + selected_files[0][-16:]
+                )
+                self.param_file_path.setToolTip(selected_files[0])
                 self.param_file_path.setStyleSheet("color: white;")
                 self._check_batch_processing_ready()
 
@@ -256,7 +263,10 @@ class MainWindow(QMainWindow):
 
         if folder:
             self.input_folder = folder
-            self.input_folder_path.setText(os.path.basename(folder))
+            self.input_folder_path.setText(
+                folder if len(folder) <= 40 else folder[:16] + "..." + folder[-16:]
+            )
+            self.input_folder_path.setToolTip(folder)
             self.input_folder_path.setStyleSheet("color: white;")
             self._check_batch_processing_ready()
 
@@ -268,7 +278,10 @@ class MainWindow(QMainWindow):
 
         if folder:
             self.output_folder = folder
-            self.output_folder_path.setText(os.path.basename(folder))
+            self.output_folder_path.setText(
+                folder if len(folder) <= 40 else folder[:16] + "..." + folder[-16:]
+            )
+            self.output_folder_path.setToolTip(folder)
             self.output_folder_path.setStyleSheet("color: white;")
             self._check_batch_processing_ready()
 
@@ -315,11 +328,11 @@ class MainWindow(QMainWindow):
         self.input_btn.setEnabled(True)
         self.output_btn.setEnabled(True)
 
-        # Show a message box to notify the user
-        QMessageBox.information(
-            self, "Batch Processing Complete",
-            "Batch processing has been completed successfully."
-        )
+        # # Show a message box to notify the user
+        # QMessageBox.information(
+        #     self, "Batch Processing Complete",
+        #     "Batch processing has been completed successfully."
+        # )
 
     def setup_segmentation_tab(self):
         """Set up the segmentation tab UI"""
@@ -334,6 +347,7 @@ class MainWindow(QMainWindow):
         self.color_btn.setStyleSheet("background-color: #f53282; font-weight: bold; ")
         self.color_btn.setFixedSize(QSize(30, 30))
         self.color_btn.clicked.connect(self.select_color)
+        self.color_btn.setToolTip("Select the color you want to segment.")
 
         color_layout.addWidget(self.color_btn)
 
@@ -355,6 +369,7 @@ class MainWindow(QMainWindow):
         self.color_thresh_slider.setValue(20)  # Default 0.2
         self.color_thresh_slider.valueChanged.connect(self.update_color_threshold)
         self.color_thresh_slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.color_thresh_slider.setToolTip("Lower this threshold to preserve more areas of interest.")
         threshold_layout.addWidget(self.color_thresh_slider, 3)
         self.color_thresh_value = QLabel("0.2")
         self.color_thresh_value.setFixedWidth(30)
@@ -373,6 +388,7 @@ class MainWindow(QMainWindow):
         self.num_labels_slider.setValue(32)  # Default
         self.num_labels_slider.valueChanged.connect(self.update_num_labels)
         self.num_labels_slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.num_labels_slider.setToolTip("Increase this value for fine-granularity segmentation.")
         num_labels_layout.addWidget(self.num_labels_slider, 3)
         self.num_labels_value = QLabel("32")
         self.num_labels_value.setFixedWidth(25)
@@ -391,6 +407,7 @@ class MainWindow(QMainWindow):
         self.max_iters_slider.setValue(30)  # Default
         self.max_iters_slider.valueChanged.connect(self.update_max_iters)
         self.max_iters_slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.max_iters_slider.setToolTip("Reduce this value for fine-granularity segmentation.")
         max_iters_layout.addWidget(self.max_iters_slider, 3)
         self.max_iters_value = QLabel("30")
         self.max_iters_value.setFixedWidth(25)
@@ -403,6 +420,7 @@ class MainWindow(QMainWindow):
         self.white_bg_cb.setChecked(True)
         self.white_bg_cb.setStyleSheet(f"color: {color_to_stylesheet(COLORS['text'])}; ")
         self.white_bg_cb.stateChanged.connect(self.update_white_bg)
+        self.white_bg_cb.setToolTip("Enable this option when detecting dark fibres in bright backgrounds.")
         layout.addWidget(self.white_bg_cb)
 
         # Segmentation button
@@ -430,6 +448,7 @@ class MainWindow(QMainWindow):
         self.line_width_range.setValues(3, 5)  # Default values
         self.line_width_range.valueChanged.connect(self.update_line_width_range)
         self.line_width_range.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.line_width_range.setToolTip("Increase line widths to detect thicker fibers.")
         line_width_layout.addWidget(self.line_width_range, 3)
 
         self.line_width_value = QLabel("(3, 5)")
@@ -446,6 +465,7 @@ class MainWindow(QMainWindow):
         self.line_step_slider.setRange(1, 5)
         self.line_step_slider.setValue(2)  # Default
         self.line_step_slider.valueChanged.connect(self.update_line_step)
+        self.line_step_slider.setToolTip("Reduce this value to detect more fibers.")
         line_step_layout.addWidget(self.line_step_slider)
         self.line_step_value = QLabel("2")
         self.line_step_value.setFixedWidth(20)
@@ -465,6 +485,7 @@ class MainWindow(QMainWindow):
         self.contrast_range.setValues(100, 200)  # Default values
         self.contrast_range.valueChanged.connect(self.update_contrast_range)
         self.contrast_range.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.contrast_range.setToolTip("Reduce the values if fibre contrast is low.")
         contrast_layout.addWidget(self.contrast_range, 3)
 
         self.contrast_value = QLabel("(100, 200)")
@@ -481,6 +502,7 @@ class MainWindow(QMainWindow):
         self.min_length_slider.setRange(1, 50)
         self.min_length_slider.setValue(5)  # Default
         self.min_length_slider.valueChanged.connect(self.update_min_length)
+        self.min_length_slider.setToolTip("Fibers shorter than this length will be ignored.")
         min_length_layout.addWidget(self.min_length_slider)
         self.min_length_value = QLabel("5")
         self.min_length_value.setFixedWidth(20)
@@ -494,12 +516,14 @@ class MainWindow(QMainWindow):
         self.dark_line_cb.setChecked(True)
         self.dark_line_cb.setStyleSheet(f"color: {color_to_stylesheet(COLORS['text'])};")
         self.dark_line_cb.stateChanged.connect(self.update_dark_line)
+        self.dark_line_cb.setToolTip("Enable this option to detect dark fibers on bright backgrounds.")
         checkbox_layout.addWidget(self.dark_line_cb)
 
         self.extend_line_cb = QCheckBox("Extend Line")
         self.extend_line_cb.setChecked(False)
         self.extend_line_cb.setStyleSheet(f"color: {color_to_stylesheet(COLORS['text'])}; ")
         self.extend_line_cb.stateChanged.connect(self.update_extend_line)
+        self.extend_line_cb.setToolTip("Enable to detect fibers near junctions.")
         checkbox_layout.addWidget(self.extend_line_cb)
         layout.addLayout(checkbox_layout)
 
@@ -513,18 +537,6 @@ class MainWindow(QMainWindow):
         layout.addStretch()
         self.det_tab.setLayout(layout)
 
-    def update_line_width_range(self, min_val, max_val):
-        """Update line width range values"""
-        self.line_width_value.setText(f"({min_val}, {max_val})")
-        self.yml_data["Detection"]["Min Line Width"] = min_val
-        self.yml_data["Detection"]["Max Line Width"] = max_val
-
-    def update_contrast_range(self, min_val, max_val):
-        """Update contrast range values"""
-        self.contrast_value.setText(f"({min_val}, {max_val})")
-        self.yml_data["Detection"]["Low Contrast"] = min_val
-        self.yml_data["Detection"]["High Contrast"] = max_val
-
     def setup_gap_analysis_tab(self):
         """Set up the gap analysis tab UI"""
         layout = QVBoxLayout()
@@ -537,6 +549,7 @@ class MainWindow(QMainWindow):
         self.min_gap_slider.setRange(5, 100)
         self.min_gap_slider.setValue(20)  # Default
         self.min_gap_slider.valueChanged.connect(self.update_min_gap)
+        self.min_gap_slider.setToolTip("Lower this value for more detailed analysis.")
         min_gap_layout.addWidget(self.min_gap_slider)
         self.min_gap_value = QLabel("20")
         self.min_gap_value.setFixedWidth(25)
@@ -552,6 +565,7 @@ class MainWindow(QMainWindow):
         self.max_hdm_slider.setRange(100, 255)
         self.max_hdm_slider.setValue(230)  # Default
         self.max_hdm_slider.valueChanged.connect(self.update_max_hdm)
+        self.max_hdm_slider.setToolTip("Reduce this value to narrow down the HDM area of interest.")
         max_hdm_layout.addWidget(self.max_hdm_slider)
         self.max_hdm_value = QLabel("230")
         self.max_hdm_value.setFixedWidth(25)
@@ -568,6 +582,18 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
         self.gap_tab.setLayout(layout)
+
+    def update_line_width_range(self, min_val, max_val):
+        """Update line width range values"""
+        self.line_width_value.setText(f"({min_val}, {max_val})")
+        self.yml_data["Detection"]["Min Line Width"] = min_val
+        self.yml_data["Detection"]["Max Line Width"] = max_val
+
+    def update_contrast_range(self, min_val, max_val):
+        """Update contrast range values"""
+        self.contrast_value.setText(f"({min_val}, {max_val})")
+        self.yml_data["Detection"]["Low Contrast"] = min_val
+        self.yml_data["Detection"]["High Contrast"] = max_val
 
     def select_color(self):
         """Open color picker dialog"""
@@ -606,7 +632,8 @@ class MainWindow(QMainWindow):
 
     def update_white_bg(self):
         """Update white background setting"""
-        self.yml_data["Segmentation"]["White Background"] = self.white_bg_cb.isChecked()
+        self.yml_data["Segmentation"]["Dark Line"] = self.white_bg_cb.isChecked()
+        self.dark_line_cb.setChecked(self.white_bg_cb.isChecked())
 
     def update_line_step(self):
         """Update line step value"""
@@ -654,7 +681,7 @@ class MainWindow(QMainWindow):
                     "Gap Analysis": True,
                 },
                 "Segmentation": {
-                    "Number of Labels": 48,
+                    "Number of Labels": 32,
                     "Max Iterations": 30,
                     "Color Threshold": 0.2,
                     "Min Size": 64,

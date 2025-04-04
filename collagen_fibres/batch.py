@@ -15,14 +15,14 @@ import datetime
 from log import Log
 
 class BatchProcessor():
-    def __init__(self, param_folder, input_folder, output_folder, batch_size=5):
+    def __init__(self, param_file, input_folder, output_folder, batch_size=5):
         """
         Initialize a BatchProcessor with the given parameters.
 
         Parameters:
         ----------
-        param_folder : str
-            Path to the folder containing Parameters.yml
+        param_file : str
+            Path to the Parameters.yml file
         input_folder : str
             Path to the folder containing input images
         output_folder : str
@@ -34,14 +34,14 @@ class BatchProcessor():
         self.batch_num = -1
         self.resume = False
         self.ignore_large = True
-        self.param_folder = param_folder
+        self.param_file = param_file
         self.input_folder = input_folder
         self.output_folder = output_folder
         self.progress_callback = None  # Add a callback for progress updates
 
         # Validate inputs
-        if not os.path.exists(self.param_folder) or not os.listdir(self.param_folder):
-            print("Invalid parameter directory. Abort!")
+        if not os.path.exists(self.param_file):
+            print("Invalid parameter file path. Abort!")
             os._exit(1)
 
         if not os.path.exists(self.input_folder) or not os.listdir(self.input_folder):
@@ -57,13 +57,12 @@ class BatchProcessor():
 
         # print out parameters
         self.args = None
-        param_path = join_path(self.param_folder, "Parameters.yml")
-        with open(param_path) as pf:
+        with open(self.param_file) as pf:
             try:
                 self.args = yaml.safe_load(pf)
             except yaml.YAMLError as exc:
                 Log.logger.error(exc)
-        Log.log_parameters(param_path)
+        Log.log_parameters(self.param_file)
 
     def check_running_status(self):
         if os.path.exists(join_path(self.output_folder, '.CheckPoint.txt')):
@@ -201,7 +200,7 @@ class BatchProcessor():
             self.batch_num = batch_idx
             batch_folder = join_path(self.output_folder, 'Batches', 'batch_' + str(batch_idx))
             Path(batch_folder).mkdir(parents=True, exist_ok=True)
-            batch_cabana = Cabana(self.param_folder, self.input_folder,
+            batch_cabana = Cabana(self.param_file, self.input_folder,
                                   batch_folder, self.batch_size, batch_idx, self.ignore_large)
             batch_cabana.run()
             with open(join_path(self.output_folder, '.CheckPoint.txt'), 'r') as ckpt:
@@ -215,19 +214,31 @@ class BatchProcessor():
             self.update_progress(progress)
 
     def post_process(self):
-        if not os.path.exists(join_path(self.output_folder, "Batches")) or len(os.listdir(join_path(self.output_folder, "Batches"))) == 0:
+        if not os.path.exists(join_path(self.output_folder, "Batches")) or len(
+                os.listdir(join_path(self.output_folder, "Batches"))) == 0:
             Log.logger.warning("No results found in output folder!")
             return
 
         Log.logger.info('Putting together everything.')
+
+        # Start from 86% (after process() finishes at ~85%)
+        self.update_progress(86)
+
+        # Calculate the total number of steps for tracking progress
+        total_steps = 9  # 1 for folders creation + 5 for file operations + 3 for final operations
+        current_step = 0
+
+        # Step 1: Create folders
         sub_folders = ['ROIs', 'Bins', 'Masks', 'HDM', 'Exports', 'Fibres', 'Eligible', 'Colors']
         for sub_folder in sub_folders:
             create_folder(join_path(self.output_folder, sub_folder, ""))
         create_folder(join_path(self.output_folder, "Masks", "GapAnalysis"))
+        current_step += 1
+        self.update_progress(86 + (current_step / total_steps) * 13)
 
-        # copy images to corresponding folders
-        for batch_idx in range(self.batch_num+1):
-            batch_folder = join_path(self.output_folder, 'Batches', "batch_"+str(batch_idx))
+        # Step 2: Copy images to corresponding folders
+        for batch_idx in range(self.batch_num + 1):
+            batch_folder = join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx))
             for sub_folder in sub_folders:
                 src_folder = join_path(batch_folder, sub_folder)
                 dst_folder = join_path(self.output_folder, sub_folder)
@@ -237,16 +248,24 @@ class BatchProcessor():
                 img_paths.sort()
                 for img_path in img_paths:
                     shutil.copy(img_path, dst_folder)
+        current_step += 1
+        self.update_progress(90 + (current_step / total_steps) * 10)
 
-            # copy gap analysis results
+        # Step 3: Copy gap analysis results
+        for batch_idx in range(self.batch_num + 1):
+            batch_folder = join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx))
             src_folder = join_path(batch_folder, 'Masks', 'GapAnalysis')
             dst_folder = join_path(self.output_folder, 'Masks', 'GapAnalysis')
             img_paths = glob(join_path(src_folder, '*.png')) + glob(join_path(src_folder, '*.csv'))
             img_paths.sort()
             for img_path in img_paths:
                 shutil.copy(img_path, dst_folder)
+        current_step += 1
+        self.update_progress(90 + (current_step / total_steps) * 10)
 
-            # copy folders in Exports and Colors
+        # Step 4: Copy folders in Exports and Colors
+        for batch_idx in range(self.batch_num + 1):
+            batch_folder = join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx))
             exports_folders = [f.name for f in os.scandir(join_path(batch_folder, "Exports")) if f.is_dir()]
             for folder in exports_folders:
                 shutil.copytree(join_path(batch_folder, "Exports", folder),
@@ -256,10 +275,12 @@ class BatchProcessor():
             for folder in colors_folders:
                 shutil.copytree(join_path(batch_folder, "Colors", folder),
                                 join_path(self.output_folder, "Colors", folder), dirs_exist_ok=True)
+        current_step += 1
+        self.update_progress(90 + (current_step / total_steps) * 10)
 
-        # copy ignored images
+        # Step 5: Copy ignored images
         ignored_images = []
-        for batch_idx in range(self.batch_num+1):
+        for batch_idx in range(self.batch_num + 1):
             with open(join_path(self.output_folder,
                                 'Batches', "batch_" + str(batch_idx), 'Eligible', 'IgnoredImages.txt'), 'r') as f:
                 lines = f.readlines()
@@ -267,20 +288,24 @@ class BatchProcessor():
                 ignored_images.extend(lines)
         with open(join_path(self.output_folder, 'Eligible', 'IgnoredImages.txt'), 'w') as f:
             f.writelines(ignored_images)
+        current_step += 1
+        self.update_progress(90 + (current_step / total_steps) * 10)
 
-        # copy Results_ROI in Bins folder
+        # Step 6: Copy Results_ROI in Bins folder
         roi_df = []
-        for batch_idx in range(self.batch_num+1):
+        for batch_idx in range(self.batch_num + 1):
             batch_folder = join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx))
             if os.path.exists(join_path(batch_folder, 'Bins', 'ResultsROI.csv')):
                 roi_df.append(pd.read_csv(join_path(batch_folder, 'Bins', 'ResultsROI.csv')))
         if len(roi_df) > 0:
             merged_df = pd.concat(roi_df, ignore_index=True)
             merged_df.to_csv(join_path(self.output_folder, 'Bins', 'ResultsROI.csv'), index=False)
+        current_step += 1
+        self.update_progress(90 + (current_step / total_steps) * 10)
 
-        # copy ResultsHDM in HDM folder
+        # Step 7: Copy ResultsHDM in HDM folder
         hdm_df = []
-        for batch_idx in range(self.batch_num+1):
+        for batch_idx in range(self.batch_num + 1):
             batch_folder = join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx))
             if os.path.exists(join_path(batch_folder, 'HDM', 'ResultsHDM.csv')):
                 hdm_df.append(pd.read_csv(join_path(batch_folder, 'HDM', 'ResultsHDM.csv')))
@@ -288,8 +313,10 @@ class BatchProcessor():
         if len(hdm_df) > 0:
             merged_df = pd.concat(hdm_df, ignore_index=True)
             merged_df.to_csv(join_path(self.output_folder, 'HDM', 'ResultsHDM.csv'), index=False)
+        current_step += 1
+        self.update_progress(90 + (current_step / total_steps) * 10)
 
-        # copy summary of all gap circles in GapAnalysis folder
+        # Step 8: Copy summary of all gap circles in GapAnalysis folder
         summary_df = []
         for batch_idx in range(self.batch_num + 1):
             batch_folder = join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx))
@@ -302,7 +329,7 @@ class BatchProcessor():
             merged_df.to_csv(
                 join_path(self.output_folder, 'Masks', 'GapAnalysis', 'GapAnalysisSummary.csv'), index=False)
 
-        # merge summary of intra gap circles in GapAnalysis folder
+        # Merge summary of intra gap circles in GapAnalysis folder
         intra_summary_df = []
         for batch_idx in range(self.batch_num + 1):
             batch_folder = join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx))
@@ -314,8 +341,10 @@ class BatchProcessor():
             merged_df = pd.concat(intra_summary_df, ignore_index=True)
             merged_df.to_csv(
                 join_path(self.output_folder, 'Masks', 'GapAnalysis', 'IntraGapAnalysisSummary.csv'), index=False)
+        current_step += 1
+        self.update_progress(90 + (current_step / total_steps) * 10)
 
-        # merge QuantificationResults in output folder
+        # Step 9: Merge QuantificationResults in output folder
         results_df = []
         for batch_idx in range(self.batch_num + 1):
             batch_folder = join_path(self.output_folder, 'Batches', "batch_" + str(batch_idx))
@@ -326,14 +355,24 @@ class BatchProcessor():
             merged_df = pd.concat(results_df, ignore_index=True)
             merged_df.to_csv(join_path(self.output_folder, 'QuantificationResults.csv'), index=False)
 
-        # remove CheckPoint.txt if program is run successfully
+        # Remove CheckPoint.txt if program is run successfully
         if os.path.exists(join_path(self.output_folder, '.CheckPoint.txt')):
             os.remove(join_path(self.output_folder, '.CheckPoint.txt'))
 
+        # Final progress update for post-processing
+        self.update_progress(99)  # Set to 99% - final 100% will be set in the run() method
+
     # Modify run method to update progress at completion
     def run(self):
+        start_time = time.time()
         self.check_running_status()
         self.process()
         self.post_process()
         # Final progress update
         self.update_progress(100)
+
+        time_secs = time.time() - start_time
+        hours = time_secs // 3600
+        minutes = (time_secs % 3600) // 60
+        seconds = (time_secs % 3600) % 60
+        Log.logger.info("--- Finished in {:.0f} hours {:.0f} mins {:.0f} seconds ---".format(hours, minutes, seconds))

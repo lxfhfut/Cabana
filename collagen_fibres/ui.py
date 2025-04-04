@@ -1,4 +1,3 @@
-import os
 import cv2
 import torch
 import imutils
@@ -25,7 +24,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 SEED = 0
 torch.use_deterministic_algorithms(True)
 
-# Napari-inspired color scheme
+# Color scheme
 COLORS = {
     'background': QColor(38, 41, 48),  # Main background
     'canvas': QColor(40, 40, 50),  # Canvas/image area
@@ -121,6 +120,8 @@ def generate_button_style(bg_color=COLORS['dock'],
             border: 1px solid {color_to_stylesheet(border_color)};
             border-radius: 4px;
             padding: 6px 12px;
+            font-size: 13px;
+            font-weight: bold;
         }}
         QPushButton:hover {{
             background-color: {color_to_stylesheet(highlight_color)};
@@ -152,6 +153,7 @@ def generate_tab_style(bg_color=COLORS['dock'],
             border-top-left-radius: 4px;
             border-top-right-radius: 4px;
             padding: 6px 12px;
+            font-weight: 300;
         }}
 
         QTabBar::tab:selected, QTabBar::tab:hover {{
@@ -215,7 +217,6 @@ class BatchProcessingWorker(QThread):
     def __init__(self, param_file, input_folder, output_folder, batch_size=5):
         super().__init__()
         self.param_file = param_file
-        self.param_folder = os.path.dirname(param_file)
         self.input_folder = input_folder
         self.output_folder = output_folder
         self.batch_size = batch_size
@@ -223,7 +224,7 @@ class BatchProcessingWorker(QThread):
     def run(self):
         self.progress_updated.emit(1)
         # Initialize the batch processor with our parameters
-        batch_processor = BatchProcessor(self.param_folder, self.input_folder,
+        batch_processor = BatchProcessor(self.param_file, self.input_folder,
                                          self.output_folder, self.batch_size)
 
         # Connect to our progress signal

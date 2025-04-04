@@ -290,37 +290,39 @@ def color_survey_with_colorbar(orient, coherency, energy, save_path, clabel="Col
 
     height, width = orient.shape[:2]
 
-    # Create the first figure for the colormap reference - using Figure instead of plt.figure
-    fig1 = Figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
-    canvas1 = FigureCanvasAgg(fig1)
-    ax1 = fig1.add_subplot(111)  # Use 111 for clarity
-    img_tmp = ax1.imshow(orient, cmap="hsv")
+    # Create a single figure with GridSpec for layout control
+    fig = Figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
+    canvas = FigureCanvasAgg(fig)
 
-    # Create the second figure for the result with colorbar - using Figure instead of plt.figure
-    fig2 = Figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
-    canvas2 = FigureCanvasAgg(fig2)
-    ax2 = fig2.add_subplot(111)
-    ax2.imshow(colored_img)
+    # Create a 2x1 grid layout
+    gs = fig.add_gridspec(1, 2, width_ratios=[20, 1], wspace=0.02)
 
-    # Add the colorbar
-    divider = make_axes_locatable(ax2)
-    cax = divider.append_axes("right", size="5%", pad=0.1)
-    cax.tick_params(labelsize=font_size)
-    cbar = fig2.colorbar(img_tmp, cax=cax)
+    # Add the main image subplot
+    ax = fig.add_subplot(gs[0, 0])
+    ax.imshow(colored_img)
+    ax.axis('off')
+
+    # Add the colorbar subplot
+    cax = fig.add_subplot(gs[0, 1])
+
+    # Create a ScalarMappable with the hsv colormap for the colorbar
+    norm = matplotlib.colors.Normalize(vmin=-np.pi / 2, vmax=np.pi / 2)
+    sm = matplotlib.cm.ScalarMappable(cmap="hsv", norm=norm)
+    sm.set_array(orient)
+
+    # Create the colorbar using the ScalarMappable
+    cbar = fig.colorbar(sm, cax=cax)
     cbar.ax.set_ylabel(clabel, fontsize=font_size)
+    cbar.ax.tick_params(labelsize=font_size)
     cbar.set_ticks(ticks=[-np.pi / 2, -np.pi / 4, 0, np.pi / 4, np.pi / 2],
                    labels=[r'-$\pi$/2', r'-$\pi$/4', '0', r'$\pi$/4', r'$\pi$/2'])
 
-    # Configure figure appearance
-    ax2.axis('off')
-
     # Draw the canvas and save the figure
-    canvas2.draw()
-    fig2.savefig(save_path, format='png', transparent=False, facecolor='white')
+    canvas.draw()
+    fig.savefig(save_path, format='png', transparent=False, facecolor='white')
 
-    # Clean up resources - proper way to close figures without using plt
-    fig1.clf()
-    fig2.clf()
+    # Clean up resources
+    fig.clf()
 
     return colored_img
 
@@ -1503,35 +1505,38 @@ def overlay_colorbar(rgb_img,
         colored_img = cv2.cvtColor(hsv_img, cv2.COLOR_HSV2RGB)
         colored_img = cv2.addWeighted(colored_img, 0.3, gray_img, 0.7, 50)
 
-    # Create the first figure for the colormap reference - using Figure instead of plt.figure
-    fig1 = Figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
-    canvas1 = FigureCanvasAgg(fig1)
-    ax1 = fig1.add_subplot(111)  # Use 111 for clarity
-    img_tmp = ax1.imshow(img, cmap=cmap)
+    # Create the figure for the result with colorbar - using Figure instead of plt.figure
+    fig = Figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
+    canvas = FigureCanvasAgg(fig)
 
-    # Create the second figure for the result with colorbar - using Figure instead of plt.figure
-    fig2 = Figure(figsize=(width / dpi * 1.2, height / dpi), dpi=dpi)
-    canvas2 = FigureCanvasAgg(fig2)
-    ax2 = fig2.add_subplot(111)
-    ax2.imshow(colored_img)
+    # Create a 2x1 grid layout
+    gs = fig.add_gridspec(1, 2, width_ratios=[20, 1], wspace=0.02)
 
-    # Add the colorbar
-    divider = make_axes_locatable(ax2)
-    cax = divider.append_axes("right", size="5%", pad=0.1)
-    cax.tick_params(labelsize=font_size)
-    cbar = fig2.colorbar(img_tmp, cax=cax)
+    # Add the main image subplot
+    ax = fig.add_subplot(gs[0, 0])
+    ax.imshow(colored_img)
+    ax.axis('off')
+
+    # Add the colorbar subplot
+    cax = fig.add_subplot(gs[0, 1])
+
+    # Create a ScalarMappable with the same colormap for the colorbar
+    # This is the key change - creating a new mappable directly on the target figure
+    norm = matplotlib.colors.Normalize(vmin=np.min(img), vmax=np.max(img))
+    sm = matplotlib.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array(img)
+
+    # Create the colorbar using the ScalarMappable
+    cbar = fig.colorbar(sm, cax=cax)
     cbar.ax.set_ylabel(clabel, fontsize=font_size)
-
-    # Configure figure appearance
-    ax2.axis('off')
+    cbar.ax.tick_params(labelsize=font_size)
 
     # Save the figure using the canvas directly
-    canvas2.draw()
-    fig2.savefig(save_path, format='png', transparent=False, facecolor='white')
+    canvas.draw()
+    fig.savefig(save_path, format='png', transparent=False, facecolor='white')
 
-    # Clean up resources - proper way to close figures without using plt
-    fig1.clf()
-    fig2.clf()
+    # Clean up resources
+    fig.clf()
 
     return rgb_img
 

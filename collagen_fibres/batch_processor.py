@@ -10,7 +10,7 @@ from utils import create_folder, join_path, get_img_paths
 from version_info import get_version_info
 from cabana import Cabana
 
-from tkinter import *
+from tkinter import Tk
 from tkinter import filedialog
 import getpass
 import datetime
@@ -25,14 +25,14 @@ class BatchProcessor:
         self.ignore_large = True
         gui = Tk()
         gui.withdraw()
-        self.param_folder = filedialog.askdirectory(initialdir=os.path.expanduser("~/Documents/"),
-                                                      title="Choose Parameter Directory")
-        if len(self.param_folder) == 0 or len(os.listdir(self.param_folder)) == 0:
+        self.param_file = filedialog.askopenfilename(initialdir=os.path.expanduser("~/Documents/"),
+                                                      title="Choose Parameter File")
+        if len(self.param_file) == 0 or os.path.exists(self.param_file) is False:
             print("No path/folder has been selected. Abort!")
             os._exit(1)
-        print(self.param_folder + " has been selected.")
+        print(self.param_file + " has been selected.")
 
-        self.input_folder = filedialog.askdirectory(initialdir=os.path.dirname(self.param_folder),
+        self.input_folder = filedialog.askdirectory(initialdir=Path(self.param_file).parent.parent,
                                                     title="Choose Input Directory")
         if len(self.input_folder) == 0 or len(os.listdir(self.input_folder)) == 0:
             print("No path/folder has been selected. Abort.")
@@ -53,13 +53,12 @@ class BatchProcessor:
 
         # print out parameters
         self.args = None
-        param_path = join_path(self.param_folder, "Parameters.yml")
-        with open(param_path) as pf:
+        with open(self.param_file) as pf:
             try:
                 self.args = yaml.safe_load(pf)
             except yaml.YAMLError as exc:
                 Log.logger.error(exc)
-        Log.log_parameters(param_path)
+        Log.log_parameters(self.param_file)
 
     def check_running_status(self):
         if os.path.exists(join_path(self.output_folder, '.CheckPoint.txt')):
@@ -298,7 +297,7 @@ class BatchProcessor:
             self.batch_num = batch_idx
             batch_folder = join_path(self.output_folder, 'Batches', 'batch_' + str(batch_idx))
             Path(batch_folder).mkdir(parents=True, exist_ok=True)
-            batch_cabana = Cabana(self.param_folder, self.input_folder,
+            batch_cabana = Cabana(self.param_file, self.input_folder,
                                   batch_folder, self.batch_size, batch_idx, self.ignore_large)
             batch_cabana.run()
             with open(join_path(self.output_folder, '.CheckPoint.txt'), 'r') as ckpt:

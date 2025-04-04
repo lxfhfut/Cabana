@@ -31,17 +31,16 @@ from utils import read_bar_format, array_divide, overlay_colorbar, color_survey_
 
 
 class Cabana:
-    def __init__(self, program_folder, input_folder, out_folder,
+    def __init__(self, param_file, input_folder, out_folder,
                  batch_size=5, batch_idx=0, ignore_large=True):
-        self.param_file = "Parameters.yml"
+        self.param_file = param_file
 
         self.args = None  # args for Cabana program
         self.seg_args = parse_args()  # args for segmentation
         self.ims_res = 1.0  # µm/pixel
         self.df_stats = pd.DataFrame()
 
-        # self.ij = ij
-        self.program_folder = program_folder
+        self.param_file = param_file
         self.input_folder = input_folder
         self.output_folder = out_folder
         self.batch_idx = batch_idx
@@ -70,8 +69,7 @@ class Cabana:
         setattr(self.seg_args, 'bin_dir', self.bin_dir)
 
     def initialize_params(self):
-        param_path = join_path(self.program_folder, self.param_file)
-        with open(param_path) as pf:
+        with open(self.param_file) as pf:
             try:
                 self.args = yaml.safe_load(pf)
             except yaml.YAMLError as exc:

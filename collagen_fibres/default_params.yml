@@ -4,7 +4,7 @@ Configs:
   Gap Analysis: True
 
 Segmentation:
-  Number of Labels: 48
+  Number of Labels: 32
   Max Iterations: 30
   Normalized Hue Value: 0.96
   Color Threshold: 0.2
@@ -31,4 +31,4 @@ Quantification:
   Curvature Window Step: 10
 
 Gap Analysis:
-  Minimum Gap Diameter: 5
+  Minimum Gap Diameter: 20
