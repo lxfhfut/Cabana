@@ -4,7 +4,7 @@ import yaml
 import imageio.v3 as iio
 from pathlib import Path
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QSpinBox, QMessageBox,
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QSpinBox,
                              QVBoxLayout, QHBoxLayout, QTabWidget, QCheckBox,
                              QPushButton, QFileDialog, QSizePolicy, QColorDialog)
 from PyQt5.QtGui import QIcon, QPalette
@@ -17,7 +17,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         # Set window properties
-        self.setWindowTitle("Cabana GUI")
+        self.setWindowTitle("Cabana-GUI")
         self.setMinimumSize(800, 600)
 
         # Make window full screen when starting
@@ -112,6 +112,19 @@ class MainWindow(QMainWindow):
         self.image_panel = ImagePanel()
         self.image_panel.imageDropped.connect(self.load_original_image)
 
+        content_layout = QVBoxLayout(self.image_panel)
+
+        # Create toggle button
+        self.toggle_button = QPushButton("|☰")
+        self.toggle_button.setCheckable(True)
+        self.toggle_button.setFixedWidth(40)
+        self.toggle_button.setStyleSheet(self.btn_style)
+        self.toggle_button.clicked.connect(self.toggle_panel)
+
+        # Add toggle button and some content to the main area
+        content_layout.addWidget(self.toggle_button, 0, Qt.AlignLeft)
+        content_layout.addStretch(1)
+
         # Add widgets to splitter
         self.splitter.addWidget(self.dock_contents)
         self.splitter.addWidget(self.image_panel)
@@ -137,6 +150,20 @@ class MainWindow(QMainWindow):
         self.detection_worker = None
         self.gap_analysis_worker = None
         self.load_default_params()
+        self.panel_visible = True
+
+    def toggle_panel(self):
+        if self.panel_visible:
+            # Hide panel
+            self.dock_contents.hide()
+            self.toggle_button.setText("☰|")
+        else:
+            # Show panel
+            self.dock_contents.show()
+            self.toggle_button.setText("|☰")
+
+        self.panel_visible = not self.panel_visible
+
 
     def _setup_styles(self) -> None:
         """Set up all style sheets"""
@@ -258,7 +285,7 @@ class MainWindow(QMainWindow):
     def select_input_folder(self):
         """Open a file dialog to select an input folder"""
         folder = QFileDialog.getExistingDirectory(
-            self, "Select Input Folder", "", QFileDialog.ShowDirsOnly
+            self, "Select Input Folder", Path(self.param_file).parent.parent, QFileDialog.ShowDirsOnly
         )
 
         if folder:
