@@ -16,7 +16,7 @@ rem Using call is required here, see: https://stackoverflow.com/questions/246781
 call %CONDAPATH%\Scripts\activate.bat %ENVPATH%
 
 rem Run a python script in that environment
-python "D:\Cabana\collagen_fibres\cabana-gui.py"
+python "D:\Cabana\src\cabana-gui.py"
 
 rem Deactivate the environment
 call conda deactivate
