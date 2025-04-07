@@ -1,4 +1,5 @@
 import os
+os.environ["NUMEXPR_MAX_THREADS"] = "20"
 import sys
 import yaml
 import imageio.v3 as iio
@@ -130,7 +131,7 @@ class MainWindow(QMainWindow):
         self.splitter.addWidget(self.image_panel)
 
         # Set initial sizes (adjust as needed)
-        self.splitter.setSizes([100, 700])
+        self.splitter.setSizes([200, 800])
 
         # Add splitter to the main layout
         self.main_layout.addWidget(self.splitter)
@@ -1011,7 +1012,8 @@ def main():
 
     app = QApplication(sys.argv)
     window = MainWindow()
-    app.setWindowIcon(QIcon("../cabana-logo.png"))
+    icon_path = Path(__file__).parent.parent / "cabana-logo.ico"
+    app.setWindowIcon(QIcon(str(icon_path)))
     window.show()
     sys.exit(app.exec_())
 

@@ -17,7 +17,7 @@ from skimage.morphology import remove_small_objects, remove_small_holes
 
 from PyQt5.QtWidgets import (QSlider, QWidget, QSplitter, QSplitterHandle, QProgressBar)
 from PyQt5.QtCore import Qt, QSize, QEvent, QPoint, QRect
-from PyQt5.QtGui import QPixmap, QPainter, QPen, QColor, QDragEnterEvent, QDropEvent, QImage
+from PyQt5.QtGui import QPixmap, QPainter, QPen, QColor, QDragEnterEvent, QDropEvent, QImage, QFont
 from PyQt5.QtCore import QThread, pyqtSignal
 
 
@@ -1356,7 +1356,10 @@ class ImagePanel(QWidget):
             painter.drawText(self.width() - text_width - 10, 20, zoom_text)
         else:
             # Draw placeholder text
-            painter.setPen(COLORS['secondary'])
+            painter.setPen(COLORS['highlight'])
+            font = QFont("Arial", 24)  # Family and size
+            font.setBold(True)  # Optional: make it bold
+            painter.setFont(font)
             text = "Drag & Drop Image Here or Use Load Image Button"
             painter.drawText(self.rect(), Qt.AlignCenter, text)
 

@@ -6,21 +6,17 @@ rem - conda to be in the PATH
 rem - cmd.exe to be initialized with conda init
 
 rem Define here the path to your conda installation
-set CONDAPATH=C:\Users\admin-astmag\anaconda3\
+set CONDAPATH=C:\ProgramData\miniconda3\
 rem Define here the name of the environment
-set ENVNAME=collagen_fibres
+set ENVNAME=cabana
 set ENVPATH=%CONDAPATH%\envs\%ENVNAME%
 
 rem Activate the conda environment
 rem Using call is required here, see: https://stackoverflow.com/questions/24678144/conda-environments-and-bat-files
 call %CONDAPATH%\Scripts\activate.bat %ENVPATH%
 
-rem run program update is needed
-rem cd "C:\Program Files\Cabana\collagen_fibres"
-rem python "C:\Program Files\Cabana\collagen_fibres\version_info.py"
-
 rem Run a python script in that environment
-python "D:\P-Cabana\collagen_fibres\batch_processor.py"
+python "D:\Cabana\collagen_fibres\cabana-gui.py"
 
 rem Deactivate the environment
 call conda deactivate

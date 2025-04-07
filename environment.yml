@@ -1,4 +1,4 @@
-name: collagen_fibres
+name: cabana
 channels:
   - pytorch
   - nvidia
@@ -186,8 +186,9 @@ dependencies:
       - matplotlib==3.7.0
       - numpy==1.24.2
       - packaging==23.0
+      - pyqt5==5.15.11
       - pillow==9.4.0
       - torchaudio==0.13.1
       - torchvision==0.14.1
       - zipp==3.14.0
-prefix: C:\ProgramData\miniconda3\envs\collagen_fibres
+prefix: C:\ProgramData\miniconda3\envs\cabana
