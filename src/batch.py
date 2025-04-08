@@ -1,18 +1,19 @@
 import os
 import time
-import shutil
 import yaml
-from pathlib import Path
-from utils import create_folder, split2batches, contains_oversized
-from utils import join_path, get_img_paths
-from version_info import get_version_info
-from cabana import Cabana
-from glob import glob
-import pandas as pd
-
+import shutil
 import getpass
 import datetime
+import pandas as pd
 from log import Log
+from glob import glob
+from pathlib import Path
+from cabana import Cabana
+from version_info import get_version_info
+from utils import join_path, get_img_paths
+from utils import create_folder, split2batches, contains_oversized
+
+
 
 class BatchProcessor():
     def __init__(self, param_file, input_folder, output_folder, batch_size=5):

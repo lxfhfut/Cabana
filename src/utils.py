@@ -6,7 +6,6 @@ import random
 import shutil
 import colorsys
 import matplotlib
-import numpy as np
 from glob import glob
 import seaborn as sns
 from enum import Enum
@@ -80,13 +79,6 @@ def info_color_map(img, info_map, cbar_label="Length", cmap="PiYG", radius=1):
     ax.set_xticks([])
     ax.set_yticks([])
 
-    # # get image data
-    # time.sleep(1.0)
-    # image_data = ax.figure.canvas.get_renderer().tostring_rgb()
-    # fig_width, fig_height = ax.figure.get_size_inches() * ax.figure.get_dpi()
-    # image_data = np.frombuffer(image_data, dtype=np.uint8).reshape((int(fig_height), int(fig_width), 3))
-    # cv2.imwrite(r"C:\Users\lxfhf\OneDrive\Documents\Debug\tmp_img.png", image_data)
-    # plt.close()
     plt.gca().set_axis_off()
     plt.subplots_adjust(top=1, bottom=0, right=1, left=0,
                         hspace=0, wspace=0)
@@ -209,10 +201,7 @@ def orient_vf(img, orient_map, wgts_map=None, color=(255, 255, 0), thickness=1, 
             y2 = int(blk_stats[blk_yi, blk_xi, 0] + size // 2 + r * blk_stats[blk_yi, blk_xi, 2])
             x2 = int(blk_stats[blk_yi, blk_xi, 1] + size // 2 - r * blk_stats[blk_yi, blk_xi, 3])
             vf = cv2.line(vf, (x1, y1), (x2, y2), color, thickness)
-    # index_pos = np.where(((vf[:, :, 0] != color[0]) | (vf[:, :, 1] != color[1]) | (vf[:, :, 2] != color[2])))
-    # vf[index_pos[0], index_pos[1], :] = img[index_pos[0], index_pos[1], :]
     return cv2.addWeighted(img, 0.7, vf, 0.7, 10)
-    # return vf
 
 
 def width_color_map(img, width_img, mask_img, width_color=[0, 255, 255], mask_color=[255, 255, 0]):
@@ -222,19 +211,8 @@ def width_color_map(img, width_img, mask_img, width_color=[0, 255, 255], mask_co
 
     contour_img = (mark_boundaries(contour_img, (width_img[:, :, 0] > 128).astype(np.uint8),
                                    color=[i / 255 if i > 1 else i for i in width_color]) * 255).astype(np.uint8)
-    # contours, _ = cv2.findContours(255-width_img[:, :, 0], cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    # cv2.drawContours(contour_img, contours, -1, width_color, 1)
 
     return contour_img
-    # width_mask_img = (mark_boundaries(width_img, (width_img[:, :, 0] > 128).astype(np.uint8)) * 255).astype(np.uint8)
-    #
-    # index_pos = np.where((width_img[:, :, 0] == 255))
-    # width_mask_img[index_pos[0], index_pos[1], :] = width_color
-    #
-    # index_pos = np.where((mask_img[:, :, 0] == 255) & (mask_img[:, :, 1] == 255) & (mask_img[:, :, 2] == 255))
-    # width_mask_img[index_pos[0], index_pos[1], :] = mask_color
-    #
-    # return cv2.addWeighted(img, 0.7, width_mask_img, 0.6, 10)
 
 
 def sbs_color_map(img, info_map, save_name, cbar_label="Length", cmap="coolwarm"):
@@ -398,13 +376,6 @@ def split2batches(img_paths, max_batch_size=5):
         path_batches.append(path_batch)
         res_batches.append(pres_value)
 
-    # double check
-    # for i in range(len(path_batches)):
-    #     for j in range(len(path_batches[i])):
-    #         old_img_res = pixel_res[img_paths.index(path_batches[i][j])]
-    #         if old_img_res != res_batches[i]:
-    #             print("Image resolution inconsistent! Aborting...")
-    #             os._exit(1)
     return path_batches, res_batches
 
 
@@ -433,7 +404,7 @@ def mean_image(image, labels):
     return np.reshape(uu, [image.shape[0], image.shape[1], image.shape[2]]).astype('uint8')
 
 
-def cal_greenness(rgb_image, hue=1.0):
+def cal_color_dist(rgb_image, hue=1.0):
     hsv = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2HSV).astype(np.float64)
     hsv[:, :, 0] = hsv[:, :, 0] / 180.0
     hsv[:, :, 1] = hsv[:, :, 1] / 255.0

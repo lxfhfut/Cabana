@@ -9,7 +9,7 @@ from detector import FibreDetector
 from torch.autograd import Variable
 from segmenter import generate_rois
 from models import BackBone, LightConv3x3
-from utils import mean_image, cal_greenness
+from utils import mean_image, cal_color_dist
 from skimage.feature import peak_local_max
 from batch import BatchProcessor
 from sklearn.metrics.pairwise import euclidean_distances
@@ -310,8 +310,13 @@ class DetectionWorker(QThread):
         self.args = args
 
     def run(self):
+        if self.args.min_line_width == self.args.max_line_width:
+            line_widths = np.array([self.args.min_line_width])
+        else:
+            line_widths = np.arange(self.args.min_line_width, self.args.max_line_width, self.args.line_step),
+
         det = FibreDetector(
-            line_widths=np.arange(self.args.min_line_width, self.args.max_line_width, self.args.line_step),
+            line_widths= line_widths,
             low_contrast=self.args.low_contrast,
             high_contrast=self.args.high_contrast,
             dark_line=self.args.dark_line,
@@ -424,8 +429,8 @@ class SegmentationWorker(QThread):
 
         labels = measure.label(image_labels)
         mean_img = mean_image(rgb_image, labels)
-        absolute_greenness, relative_greenness = cal_greenness(mean_img, self.args.hue_value)
-        thresholded = relative_greenness > self.args.rt
+        abs_color_dist, rel_color_dist = cal_color_dist(mean_img, self.args.hue_value)
+        thresholded = rel_color_dist > self.args.rt
         thresholded = remove_small_holes(thresholded, self.args.min_size)
         thresholded = remove_small_objects(thresholded, self.args.min_size)
 

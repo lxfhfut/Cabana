@@ -1,10 +1,8 @@
-import numpy as np
-from scipy.stats import circvar, skew, kurtosis
-import imageio.v3 as iio
 import cv2
-from skimage.util import img_as_float, img_as_bool
-from skimage.filters import scharr
-from scipy.ndimage import gaussian_filter, gaussian_gradient_magnitude
+import numpy as np
+from scipy.stats import circvar, kurtosis
+import imageio.v3 as iio
+from skimage.util import img_as_bool
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure

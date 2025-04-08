@@ -1,5 +1,4 @@
 import os
-# os.environ['NUMEXPR_MAX_THREADS'] = '12'
 import cv2
 import csv
 import imutils
@@ -15,7 +14,7 @@ from log import Log
 from torch.autograd import Variable
 from skimage.morphology import remove_small_objects, remove_small_holes
 from models import BackBone, LightConv3x3
-from utils import mean_image, cal_greenness, save_result_video, read_bar_format
+from utils import mean_image, cal_color_dist, save_result_video, read_bar_format
 
 # For reproductivity
 SEED = 0
@@ -118,12 +117,11 @@ def segment_single_image(args):
             im_target_rgb = np.array([label_colours[c % 100] for c in im_target])
             im_target_rgb = im_target_rgb.reshape(img_size[0], img_size[1], 3).astype("uint8")
             mean_img = mean_image(rgb_image, measure.label(image_labels))
-            absolute_greenness, relative_greenness = cal_greenness(mean_img, args.hue_value)
-            # greenness = np.multiply(relative_greenness, (absolute_greenness > args.at).astype(np.float64))
-            thresholded = 255 * ((relative_greenness > args.rt).astype("uint8"))
+            abs_color_dist, rel_color_dist = cal_color_dist(mean_img, args.hue_value)
+            thresholded = 255 * ((rel_color_dist > args.rt).astype("uint8"))
             all_mean_images.append(mean_img)
-            all_absolute_greenness.append(absolute_greenness)
-            all_relative_greenness.append(relative_greenness)
+            all_absolute_greenness.append(abs_color_dist)
+            all_relative_greenness.append(rel_color_dist)
             all_thresholded.append(thresholded)
             all_image_labels.append(im_target_rgb)
 
@@ -138,9 +136,6 @@ def segment_single_image(args):
             Log.logger.debug("nLabels", num_labels, "reached minLabels", args.min_labels, ": ", args.input)
             break
 
-    # im_target_rgb = np.array([label_colours[c % 100] for c in im_target])
-    # im_target_rgb = im_target_rgb.reshape(img_size[0], img_size[1], 3).astype("uint8")
-
     if args.save_video:
         save_result_path = os.path.join(args.bin_dir, img_name + "_result.mp4")
         save_result_video(save_result_path, rgb_image, all_image_labels, all_mean_images,
@@ -148,46 +143,23 @@ def segment_single_image(args):
     else:
         labels = measure.label(image_labels)
         mean_img = mean_image(rgb_image, labels)
-        absolute_greenness, relative_greenness = cal_greenness(mean_img, args.hue_value)
-        thresholded = relative_greenness > args.rt
+        abs_color_dist, rel_color_dist = cal_color_dist(mean_img, args.hue_value)
+        thresholded = rel_color_dist > args.rt
         thresholded = remove_small_holes(thresholded, args.min_size)
         thresholded = remove_small_objects(thresholded, args.min_size)
         mask = 255 * (thresholded.astype("uint8"))
 
-        # thickness = 2
-        # kernel = np.ones((thickness, thickness), np.uint8)
-        # eroded_roi = cv2.erode(mask, kernel)
-        # mask = eroded_roi.astype("float") / 255.0
-        #
-        # if args.smooth_edge:
-        #     mask = cv2.GaussianBlur(mask, (5, 5), 0)
-        #
         mask = cv2.resize(mask, (ori_width, ori_height), cv2.INTER_NEAREST)
-        # roi_img = ori_img.copy().astype('float')
-        # roi_img[:, :, 0] = np.multiply(roi_img[:, :, 0], mask) + (1 - mask) * 228
-        # roi_img[:, :, 1] = np.multiply(roi_img[:, :, 1], mask) + (1 - mask) * 228
-        # roi_img[:, :, 2] = np.multiply(roi_img[:, :, 2], mask) + (1 - mask) * 228
         roi_img = generate_rois(ori_img, (mask > 128).astype("uint8")*255, args.white_background)
 
-        # mask = (mask*255).astype("uint8")
-
         if rotated:
-            cv2.imwrite(os.path.join(args.roi_dir, img_name + '_roi.png'), cv2.rotate(roi_img, cv2.ROTATE_90_CLOCKWISE))
+            cv2.imwrite(os.path.join(args.roi_dir, img_name + '_roi.png'),
+                        cv2.rotate(roi_img, cv2.ROTATE_90_CLOCKWISE))
             cv2.imwrite(os.path.join(args.bin_dir, img_name + '_mask.png'),
                         (cv2.rotate(mask, cv2.ROTATE_90_CLOCKWISE) > 128).astype("uint8")*255)
-            # cv2.imwrite(os.path.join(args.bin_dir, img_name + '_label.png'),
-            #             cv2.rotate(cv2.cvtColor(im_target_rgb, cv2.COLOR_RGB2BGR), cv2.ROTATE_90_CLOCKWISE))
-            # cv2.imwrite(os.path.join(args.bin_dir, img_name + '_mean.png'),
-            #             cv2.rotate(cv2.cvtColor(mean_img, cv2.COLOR_RGB2BGR), cv2.ROTATE_90_CLOCKWISE))
-            # cv2.imwrite(os.path.join(args.bin_dir, img_name + '_color.png'),
-            #             cv2.rotate(relative_greenness*255, cv2.ROTATE_90_CLOCKWISE))
         else:
             cv2.imwrite(os.path.join(args.roi_dir, img_name + '_roi.png'), roi_img)
             cv2.imwrite(os.path.join(args.bin_dir, img_name + '_mask.png'), (mask > 128).astype("uint8")*255)
-            # cv2.imwrite(os.path.join(args.bin_dir, img_name + '_label.png'),
-            #             cv2.cvtColor(im_target_rgb, cv2.COLOR_RGB2BGR))
-            # cv2.imwrite(os.path.join(args.bin_dir, img_name + '_mean.png'), cv2.cvtColor(mean_img, cv2.COLOR_RGB2BGR))
-            # cv2.imwrite(os.path.join(args.bin_dir, img_name + '_color.png'), relative_greenness*255)
 
         return np.sum(mask > 128), np.sum(mask > 128)/ori_width/ori_height
 
@@ -204,12 +176,6 @@ def visualize_fibres(img, mask, result_path, thickness=3, border_color=[255, 255
     for row, col in zip(list(x_idx), list(y_idx)):
         img_with_border[row, col, :] = border_color
     cv2.imwrite(result_path, img_with_border)
-    # cv2.imwrite(result_path[:-11] + '_border.png', img_with_border)
-    # fig, axs = plt.subplots(1, 2, figsize=(16, 8), facecolor='white')
-    # axs[0].imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-    # axs[1].imshow(cv2.cvtColor(img_with_border, cv2.COLOR_BGR2RGB))
-    # plt.savefig(result_path, bbox_inches='tight', dpi=300)
-    # plt.close()
 
 
 def generate_rois(img, roi, white_background=True, thickness=3):
@@ -238,8 +204,8 @@ if __name__ == "__main__":
     
     for num_labels in [48]:
         setattr(args, 'num_channels', num_labels)
-        dst_folder = '/home/lxfhfut/Dropbox/Garvan/Test_ROI/relative_0.23/' + str(num_labels)
-        src_folder = '/home/lxfhfut/Dropbox/Garvan/Compressed images/'
+        dst_folder = '~/Dropbox/Garvan/Test_ROI/relative_0.23/' + str(num_labels)
+        src_folder = '~/Dropbox/Garvan/Compressed images/'
         img_names = glob(os.path.join(src_folder, '*.tif')) \
                     + glob(os.path.join(src_folder, '.tiff')) \
                     + glob(os.path.join(src_folder, '*.TIF')) \

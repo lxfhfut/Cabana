@@ -6,7 +6,6 @@ import networkx as nx
 from numba import jit
 import imageio.v3 as iio
 import scipy.ndimage as ndi
-from utils import add_colorbar
 from skimage.morphology import skeletonize, remove_small_holes
 from detector import FibreDetector
 from scipy.interpolate import splprep, splev
