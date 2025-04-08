@@ -1357,7 +1357,7 @@ class ImagePanel(QWidget):
         else:
             # Draw placeholder text
             painter.setPen(COLORS['highlight'])
-            font = QFont("Arial", 24)  # Family and size
+            font = QFont("Arial", 20)  # Family and size
             font.setBold(True)  # Optional: make it bold
             painter.setFont(font)
             text = "Drag & Drop Image Here or Use Load Image Button"
