@@ -16,7 +16,8 @@ from utils import create_folder, split2batches, contains_oversized
 
 
 class BatchProcessor():
-    def __init__(self, param_file, input_folder, output_folder, batch_size=5):
+    def __init__(self, param_file, input_folder, output_folder, batch_size=5,
+                 batch_num=0, resume=False, ignore_large=False):
         """
         Initialize a BatchProcessor with the given parameters.
 
@@ -32,9 +33,9 @@ class BatchProcessor():
             Size of batches for processing, by default 5
         """
         self.batch_size = batch_size
-        self.batch_num = -1
-        self.resume = False
-        self.ignore_large = True
+        self.batch_num = batch_num
+        self.resume = resume
+        self.ignore_large = ignore_large
         self.param_file = param_file
         self.input_folder = input_folder
         self.output_folder = output_folder
@@ -65,59 +66,59 @@ class BatchProcessor():
                 Log.logger.error(exc)
         Log.log_parameters(self.param_file)
 
-    def check_running_status(self):
-        if os.path.exists(join_path(self.output_folder, '.CheckPoint.txt')):
-            input_folder = ""
-            batch_size = 5
-            batch_num = 0
-            ignore_large = False
-            Log.logger.warning("A checkpoint file exists in the output folder.")
-            with open(join_path(self.output_folder, '.CheckPoint.txt'), "r") as f:
-                lines = f.readlines()
-                for line in lines:
-                    param_pair = line.rstrip().split(",")
-                    key = param_pair[0]
-                    value = param_pair[1]
-                    if key == "Input Folder":
-                        input_folder = value
-                    elif key == "Batch Size":
-                        batch_size = int(value)
-                    elif key == "Batch Number":
-                        batch_num = int(value)
-                    elif key == "Ignore Large":
-                        ignore_large = True if value.lower() == 'true' else False
-                    else:
-                        pass
-            if os.path.exists(input_folder):
-                self.resume = os.path.samefile(input_folder, self.input_folder)
-            else:
-                self.resume = False
-
-            # Briefly check if all sub-folders exist in the output folder
-            for batch_idx in range(self.batch_num+1):
-                if not os.path.exists(join_path(self.output_folder, 'Batches', 'batch_' + str(batch_idx))):
-                    Log.logger.warning('However, some necessary sub-folders are missing. A new run will start.')
-                    self.resume = False
-                    break
-
-            while self.resume:
-                user_input = input("Do you want to resume from last checkpoint? ([y]/n): ")
-                if user_input.lower() == "y" or user_input.lower() == "yes":
-                    Log.logger.info('Resuming from last check point.')
-                    self.resume = True
-                    self.batch_size = batch_size
-                    self.batch_num = batch_num
-                    self.ignore_large = ignore_large
-                    break
-                elif user_input.lower() == "n" or user_input.lower() == "no":
-                    Log.logger.info("Starting a new run.")
-                    self.resume = False
-                    break
-                else:
-                    Log.logger.warning("Invalid input. Please enter y or n.")
-        else:
-            Log.logger.info("No checkpoint file found. Starting a new run.")
-            self.resume = False
+    # def check_running_status(self):
+    #     if os.path.exists(join_path(self.output_folder, '.CheckPoint.txt')):
+    #         input_folder = ""
+    #         batch_size = 5
+    #         batch_num = 0
+    #         ignore_large = False
+    #         Log.logger.warning("A checkpoint file exists in the output folder.")
+    #         with open(join_path(self.output_folder, '.CheckPoint.txt'), "r") as f:
+    #             lines = f.readlines()
+    #             for line in lines:
+    #                 param_pair = line.rstrip().split(",")
+    #                 key = param_pair[0]
+    #                 value = param_pair[1]
+    #                 if key == "Input Folder":
+    #                     input_folder = value
+    #                 elif key == "Batch Size":
+    #                     batch_size = int(value)
+    #                 elif key == "Batch Number":
+    #                     batch_num = int(value)
+    #                 elif key == "Ignore Large":
+    #                     ignore_large = True if value.lower() == 'true' else False
+    #                 else:
+    #                     pass
+    #         if os.path.exists(input_folder):
+    #             self.resume = os.path.samefile(input_folder, self.input_folder)
+    #         else:
+    #             self.resume = False
+    #
+    #         # Briefly check if all sub-folders exist in the output folder
+    #         for batch_idx in range(self.batch_num+1):
+    #             if not os.path.exists(join_path(self.output_folder, 'Batches', 'batch_' + str(batch_idx))):
+    #                 Log.logger.warning('However, some necessary sub-folders are missing. A new run will start.')
+    #                 self.resume = False
+    #                 break
+    #
+    #         while self.resume:
+    #             user_input = input("Do you want to resume from last checkpoint? ([y]/n): ")
+    #             if user_input.lower() == "y" or user_input.lower() == "yes":
+    #                 Log.logger.info('Resuming from last check point.')
+    #                 self.resume = True
+    #                 self.batch_size = batch_size
+    #                 self.batch_num = batch_num
+    #                 self.ignore_large = ignore_large
+    #                 break
+    #             elif user_input.lower() == "n" or user_input.lower() == "no":
+    #                 Log.logger.info("Starting a new run.")
+    #                 self.resume = False
+    #                 break
+    #             else:
+    #                 Log.logger.warning("Invalid input. Please enter y or n.")
+    #     else:
+    #         Log.logger.info("No checkpoint file found. Starting a new run.")
+    #         self.resume = False
 
     # Add this method to the BatchProcessor class for progress callback
     def update_progress(self, value):
@@ -146,8 +147,7 @@ class BatchProcessor():
 
             max_res = self.args['Segmentation']["Max Size"]
             if contains_oversized(img_paths, max_res):
-                # For GUI mode, we'll default to ignoring large images
-                self.ignore_large = True
+                self.ignore_large = False
                 Log.logger.warning(f"Oversized (> {max_res:d}x{max_res:d} pixels) images will be ignored.")
 
             with open(join_path(self.output_folder, '.CheckPoint.txt'), 'w') as ckpt:
@@ -366,7 +366,7 @@ class BatchProcessor():
     # Modify run method to update progress at completion
     def run(self):
         start_time = time.time()
-        self.check_running_status()
+        # self.check_running_status()
         self.process()
         self.post_process()
         # Final progress update

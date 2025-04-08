@@ -197,6 +197,94 @@ def generate_progressbar_style(bg_color=COLORS['background'],
         }}
     """
 
+
+def generate_messagebox_style(bg_color=COLORS['background'],
+                              text_color=COLORS['text'],
+                              border_color=COLORS['border'],
+                              highlight_color=COLORS['highlight'],
+                              highlight_text_color=COLORS['background'],
+                              button_bg_color=COLORS['dock']):
+    """Generate QMessageBox stylesheet with specified colors
+
+    Parameters:
+    ----------
+    bg_color : QColor
+        Background color for the message box
+    text_color : QColor
+        Text color for the message box content
+    border_color : QColor
+        Border color for the message box
+    highlight_color : QColor
+        Highlight color for interactive elements
+    highlight_text_color : QColor
+        Text color for highlighted elements
+    button_bg_color : QColor
+        Background color for buttons
+
+    Returns:
+    -------
+    str
+        CSS stylesheet for QMessageBox
+    """
+    return f"""
+        QMessageBox {{
+            background-color: {color_to_stylesheet(bg_color)};
+            color: {color_to_stylesheet(text_color)};
+            border: 1px solid {color_to_stylesheet(border_color)};
+            border-radius: 6px;
+        }}
+
+        QMessageBox QLabel {{
+            color: {color_to_stylesheet(text_color)};
+            font-size: 13px;
+        }}
+
+        QMessageBox QPushButton {{
+            background-color: {color_to_stylesheet(button_bg_color)};
+            color: {color_to_stylesheet(text_color)};
+            border: 1px solid {color_to_stylesheet(border_color)};
+            border-radius: 4px;
+            padding: 6px 12px;
+            min-width: 80px;
+            font-size: 13px;
+            font-weight: bold;
+        }}
+
+        QMessageBox QPushButton:hover {{
+            background-color: {color_to_stylesheet(highlight_color)};
+            color: {color_to_stylesheet(highlight_text_color)};
+        }}
+
+        QMessageBox QPushButton:pressed {{
+            background-color: {color_to_stylesheet(QColor(80, 160, 190))};
+        }}
+
+        QMessageBox QCheckBox {{
+            color: {color_to_stylesheet(text_color)};
+            padding: 2px;
+        }}
+
+        QMessageBox QCheckBox::indicator {{
+            width: 16px;
+            height: 16px;
+            border: 1px solid {color_to_stylesheet(border_color)};
+            border-radius: 3px;
+            background-color: {color_to_stylesheet(button_bg_color)};
+        }}
+
+        QMessageBox QCheckBox::indicator:checked {{
+            background-color: {color_to_stylesheet(highlight_color)};
+            image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath fill='%23{highlight_text_color.red():02x}{highlight_text_color.green():02x}{highlight_text_color.blue():02x}' d='M1,5 L3.5,7.5 L9,2'/%3E%3C/svg%3E");
+        }}
+
+        QMessageBox QTextEdit {{
+            background-color: {color_to_stylesheet(QColor(bg_color.red() - 5, bg_color.green() - 5, bg_color.blue() - 5))};
+            color: {color_to_stylesheet(text_color)};
+            border: 1px solid {color_to_stylesheet(border_color)};
+            border-radius: 3px;
+        }}
+    """
+
 class PercentageProgressBar(QProgressBar):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -214,18 +302,23 @@ class BatchProcessingWorker(QThread):
     progress_updated = pyqtSignal(int)
     batch_complete = pyqtSignal()
 
-    def __init__(self, param_file, input_folder, output_folder, batch_size=5):
+    def __init__(self, param_file, input_folder, output_folder, batch_size=5,
+                 batch_num=0, resume=False, ignore_large=False):
         super().__init__()
         self.param_file = param_file
         self.input_folder = input_folder
         self.output_folder = output_folder
         self.batch_size = batch_size
+        self.batch_num = batch_num
+        self.resume = resume
+        self.ignore_large = ignore_large
 
     def run(self):
         self.progress_updated.emit(1)
         # Initialize the batch processor with our parameters
         batch_processor = BatchProcessor(self.param_file, self.input_folder,
-                                         self.output_folder, self.batch_size)
+                                         self.output_folder, self.batch_size,
+                                         self.batch_num, self.resume, self.ignore_large)
 
         # Connect to our progress signal
         batch_processor.progress_callback = self.update_progress

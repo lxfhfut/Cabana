@@ -4,10 +4,11 @@ import sys
 import yaml
 import imageio.v3 as iio
 from pathlib import Path
+from utils import join_path
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QSpinBox,
                              QVBoxLayout, QHBoxLayout, QTabWidget, QCheckBox,
-                             QPushButton, QFileDialog, QSizePolicy, QColorDialog)
+                             QPushButton, QFileDialog, QSizePolicy, QColorDialog, QMessageBox)
 from PyQt5.QtGui import QIcon, QPalette
 
 from ui import *
@@ -286,7 +287,7 @@ class MainWindow(QMainWindow):
     def select_input_folder(self):
         """Open a file dialog to select an input folder"""
         folder = QFileDialog.getExistingDirectory(
-            self, "Select Input Folder", Path(self.param_file).parent.parent, QFileDialog.ShowDirsOnly
+            self, "Select Input Folder", str(Path(self.param_file).parent.parent), QFileDialog.ShowDirsOnly
         )
 
         if folder:
@@ -318,6 +319,63 @@ class MainWindow(QMainWindow):
         is_ready = hasattr(self, 'param_file') and hasattr(self, 'input_folder') and hasattr(self, 'output_folder')
         self.process_batch_btn.setEnabled(is_ready)
 
+    def _check_batch_running_status(self):
+        checkpoint_path = join_path(self.output_folder, '.CheckPoint.txt')
+
+        # Default values
+        resume = False
+        batch_size = 5
+        batch_num = 0
+        ignore_large = True
+
+        # Check if checkpoint file exists
+        if not os.path.exists(checkpoint_path):
+            print("No checkpoint file found. Starting a new run.")
+            return resume, batch_size, batch_num, ignore_large
+
+        # Read checkpoint file
+        print("A checkpoint file exists in the output folder.")
+        with open(checkpoint_path, "r") as f:
+            for line in f:
+                key, value = line.rstrip().split(",")
+                if key == "Input Folder":
+                    input_folder = value
+                elif key == "Batch Size":
+                    batch_size = int(value)
+                elif key == "Batch Number":
+                    batch_num = int(value)
+                elif key == "Ignore Large":
+                    ignore_large = value.lower() == 'true'
+
+        # Check if input folder matches
+        if os.path.exists(input_folder):
+            resume = os.path.samefile(input_folder, self.input_folder)
+
+        # Verify all batch folders exist
+        for batch_idx in range(batch_num + 1):
+            batch_path = join_path(self.output_folder, 'Batches', f'batch_{batch_idx}')
+            if not os.path.exists(batch_path):
+                print('However, some necessary sub-folders are missing. A new run will start.')
+                resume = False
+                break
+
+        # If validation passes, ask user about resuming
+        if resume:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Checkpoint Detected")
+            msg_box.setText("A checkpoint file was found. Do you want to resume from the last checkpoint?")
+            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg_box.setDefaultButton(QMessageBox.Yes)
+            msg_box.setStyleSheet(generate_messagebox_style())
+
+            if msg_box.exec_() == QMessageBox.Yes:
+                print('Resuming from last check point.')
+                return True, batch_size, batch_num, ignore_large
+            else:
+                print("Starting a new run.")
+
+        return False, batch_size, batch_num, ignore_large
+
     def run_batch_processing(self):
         """Run batch processing in a background thread"""
         if not hasattr(self, 'param_file') or not hasattr(self, 'input_folder') or not hasattr(self, 'output_folder'):
@@ -331,10 +389,15 @@ class MainWindow(QMainWindow):
         self.output_btn.setEnabled(False)
         self.show_progress_bar()
 
-        # Create and configure the worker
-        batch_size = self.batch_size_spinner.value()
+        resume, batch_size, batch_num, ignore_large = self._check_batch_running_status()
+
+        if not resume:
+            batch_size = self.batch_size_spinner.value()
+            batch_num = 0
+
         self.batch_worker = BatchProcessingWorker(
-            self.param_file, self.input_folder, self.output_folder, batch_size
+            self.param_file, self.input_folder, self.output_folder,
+            batch_size, batch_num, resume, ignore_large
         )
 
         # Connect signals
