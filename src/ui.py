@@ -406,8 +406,8 @@ class DetectionWorker(QThread):
         if self.args.min_line_width == self.args.max_line_width:
             line_widths = np.array([self.args.min_line_width])
         else:
-            line_widths = np.arange(self.args.min_line_width, self.args.max_line_width, self.args.line_step),
-
+            line_widths = np.arange(self.args.min_line_width, self.args.max_line_width, self.args.line_step)
+        print(line_widths)
         det = FibreDetector(
             line_widths= line_widths,
             low_contrast=self.args.low_contrast,
