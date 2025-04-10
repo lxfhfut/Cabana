@@ -143,6 +143,7 @@ class MainWindow(QMainWindow):
         # Make handle transparent by default
         self.splitter.setStyleSheet("QSplitter::handle { background-color: transparent; }")
 
+        self.img_path = None
         self.ori_img = None
         self.seg_img = None
         self.frb_img = None
@@ -180,6 +181,9 @@ class MainWindow(QMainWindow):
 
         # Spinnere style
         self.spinner_style = generate_spinner_style()
+
+        # Messagebox style
+        self.msgbox_style = generate_messagebox_style()
 
     def setup_batch_processing_tab(self):
         """Set up the batch processing tab UI"""
@@ -366,7 +370,7 @@ class MainWindow(QMainWindow):
             msg_box.setText("A checkpoint file was found. Do you want to resume from the last checkpoint?")
             msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             msg_box.setDefaultButton(QMessageBox.Yes)
-            msg_box.setStyleSheet(generate_messagebox_style())
+            msg_box.setStyleSheet(self.msgbox_style)
 
             if msg_box.exec_() == QMessageBox.Yes:
                 print('Resuming from last check point.')
@@ -443,7 +447,7 @@ class MainWindow(QMainWindow):
         color_layout.addWidget(self.color_btn)
 
         self.hue_label = QLabel("Normalized hue: 0.96")
-        self.hue_label.setStyleSheet(f"color: #f53282; font-weight: bold")
+        self.hue_label.setStyleSheet(f"font-weight: bold")
         self.hue_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         color_layout.addWidget(self.hue_label)
         color_group_layout.addLayout(color_layout)
@@ -507,12 +511,20 @@ class MainWindow(QMainWindow):
         layout.addLayout(max_iters_layout)
 
         # White background checkbox
+        h_layout = QHBoxLayout()
         self.white_bg_cb = QCheckBox("White Background")
         self.white_bg_cb.setChecked(True)
         self.white_bg_cb.setStyleSheet(f"color: {color_to_stylesheet(COLORS['text'])}; ")
         self.white_bg_cb.stateChanged.connect(self.update_white_bg)
         self.white_bg_cb.setToolTip("Enable this option when detecting dark fibres in bright backgrounds.")
-        layout.addWidget(self.white_bg_cb)
+        h_layout.addWidget(self.white_bg_cb)
+        self.reload_btn = QPushButton("Reload Image")
+        self.reload_btn.clicked.connect(self.reload_image)
+        self.reload_btn.setEnabled(False)
+        self.reload_btn.setStyleSheet(self.btn_style.replace("font-weight: bold;", ""))
+        self.white_bg_cb.setToolTip("Reload the original image")
+        h_layout.addWidget(self.reload_btn)
+        layout.addLayout(h_layout)
 
         # Segmentation button
         self.segment_btn = QPushButton("Segment")
@@ -698,7 +710,7 @@ class MainWindow(QMainWindow):
             # Calculate hue
             hue = hex_to_hue(hex_color)
             self.hue_label.setText(f"Normalized hue: {hue:.2f}")
-            self.hue_label.setStyleSheet(f"color: {hex_color}")
+            # self.hue_label.setStyleSheet(f"color: {hex_color}")
 
             # Update YAML data
             self.yml_data["Segmentation"]["Normalized Hue Value"] = float(f"{hue:.2f}")
@@ -817,6 +829,7 @@ class MainWindow(QMainWindow):
         """Load the original image from a file path"""
         try:
             self.ori_img = iio.imread(path)
+            self.img_path = path
             if len(self.ori_img.shape) < 3:
                 self.ori_img = np.repeat(self.ori_img[:, :, np.newaxis], 3, axis=2)
             elif len(self.ori_img.shape) == 3 and self.ori_img.shape[2] > 3:
@@ -826,14 +839,19 @@ class MainWindow(QMainWindow):
             # Enable processing buttons
             self.segment_btn.setEnabled(True)
             self.detect_btn.setEnabled(True)
-            self.analyze_btn.setEnabled(True)
+            self.reload_btn.setEnabled(True)
             self.seg_img = None
             self.frb_img = None
             self.wdt_img = None
             self.gap_img = None
         except Exception as e:
-            print(f"Error loading image: {e}")
             self.ori_img = None
+            self.img_path = None
+            self.segment_btn.setEnabled(False)
+            self.detect_btn.setEnabled(False)
+            self.reload_btn.setEnabled(False)
+            print(f"Error loading image: {e}")
+
 
     def load_image(self):
         """Open a file dialog to select an image file"""
@@ -869,6 +887,7 @@ class MainWindow(QMainWindow):
             if selected_files:
                 self.image_panel.setImage(selected_files[0])
                 self.ori_img = iio.imread(selected_files[0])
+                self.img_path = selected_files[0]
                 if len(self.ori_img.shape) < 3:
                     self.ori_img = np.repeat(self.ori_img[:, :, np.newaxis], 3, axis=2)
                 elif len(self.ori_img.shape) == 3 and self.ori_img.shape[2] > 3:
@@ -881,6 +900,14 @@ class MainWindow(QMainWindow):
                 self.gap_img = None
                 self.segment_btn.setEnabled(True)
                 self.detect_btn.setEnabled(True)
+                self.reload_btn.setEnabled(True)
+    def reload_image(self):
+        """Reload the original image"""
+        if self.img_path:
+            self.image_panel.setImage(self.img_path)
+            self.segment_btn.setEnabled(True)
+            self.detect_btn.setEnabled(True)
+            self.reload_btn.setEnabled(True)
 
     def run_segmentation(self):
         if self.ori_img is None:

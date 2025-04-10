@@ -1,17 +1,4 @@
 import numpy as np
-from numba import jit
-
-# class Correction:
-#     def __init__(self, w_est, r_rest, w, h, correction, w_strong, w_weak, is_valid):
-#         self.w_est = w_est
-#         self.r_rest = r_rest
-#         self.w = w
-#         self.h = h
-#         self.correction = correction
-#         self.w_strong = w_strong
-#         self.w_weak = w_weak
-#         self.is_valid = is_valid
-
 
 class Correct:
     # ctable = None
@@ -877,40 +864,6 @@ class Correct:
          [5.8, 1.00, 2.89999971, 0.00000000, 0.00000000, 2.90000000, 2.90000000, 1],
          [5.9, 1.00, 2.94999984, 0.00000000, 0.00000000, 2.95000000, 2.95000000, 1],
          [6.0, 1.00, 2.99999991, 0.00000000, 0.00000000, 3.00000000, 3.00000000, 1]]])
-
-    # @staticmethod
-    # def get_ctable(i, j):
-    #     if Correct.ctable is None:
-    #         Correct.init()
-    #
-    #     return Correct.ctable[i][j]
-    #
-    # @staticmethod
-    # def init():
-    #     Correct.ctable = [[Correction(Correct.ctableh[i][j][0], Correct.ctableh[i][j][1],
-    #                                   Correct.ctableh[i][j][2], Correct.ctableh[i][j][3],
-    #                                   Correct.ctableh[i][j][4], Correct.ctableh[i][j][5],
-    #                                   Correct.ctableh[i][j][6], Correct.ctableh[i][j][7] == 1) for j in range(41)] for i in range(21)]
-
-    # @staticmethod
-    # def bilinear(a, b, i_re, i_we, i):
-    #     value = 0
-    #     if i == 0:
-    #         value = ((1 - b) * ((1 - a) * Correct.get_ctable(i_re, i_we).w + a * Correct.get_ctable(i_re, i_we + 1).w)
-    #                  + b * ((1 - a) * Correct.get_ctable(i_re + 1, i_we).w + a * Correct.get_ctable(i_re + 1, i_we + 1).w))
-    #     elif i == 1:
-    #         value = ((1 - b) * ((1 - a) * Correct.get_ctable(i_re, i_we).h + a * Correct.get_ctable(i_re, i_we + 1).h)
-    #                  + b * ((1 - a) * Correct.get_ctable(i_re + 1, i_we).h + a * Correct.get_ctable(i_re + 1, i_we + 1).h))
-    #     elif i == 2:
-    #         value = ((1 - b) * ((1 - a) * Correct.get_ctable(i_re, i_we).correction + a * Correct.get_ctable(i_re, i_we + 1).correction)
-    #                  + b * ((1 - a) * Correct.get_ctable(i_re + 1, i_we).correction + a * Correct.get_ctable(i_re + 1, i_we + 1).correction))
-    #     elif i == 3:
-    #         value = ((1 - b) * ((1 - a) * Correct.get_ctable(i_re, i_we).w_strong + a * Correct.get_ctable(i_re, i_we + 1).w_strong)
-    #                  + b * ((1 - a) * Correct.get_ctable(i_re + 1, i_we).w_strong + a * Correct.get_ctable(i_re + 1, i_we + 1).w_strong))
-    #     elif i == 4:
-    #         value = ((1 - b) * ((1 - a) * Correct.get_ctable(i_re, i_we).w_weak + a * Correct.get_ctable(i_re, i_we + 1).w_weak)
-    #                  + b * ((1 - a) * Correct.get_ctable(i_re + 1, i_we).w_weak + a * Correct.get_ctable(i_re + 1, i_we + 1).w_weak))
-    #     return value
 
     @staticmethod
     def bilinear(a, b, i_re, i_we, i):

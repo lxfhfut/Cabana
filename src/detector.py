@@ -766,10 +766,6 @@ class FibreDetector:
                                     grad_l[j] = grad_rl[y, x]
                                     width_l[j] = abs(t)
                                 break
-            # # width_l = gaussian_filter1d(width_l, 3.0, mode='mirror')
-            # # width_r = gaussian_filter1d(width_r, 3.0, mode='mirror')
-            # cont.width_l = width_l
-            # cont.width_r = width_r
             fix_locations(cont, width_l, width_r, grad_l, grad_r, pos_y, pos_x,
                           self.sigma_map, self.correct_pos, self.mode)
 
@@ -804,27 +800,11 @@ class FibreDetector:
         # Convert to grayscale
         self.gray = cv2.cvtColor(self.image, cv2.COLOR_RGB2GRAY) if self.image.ndim == 3 else self.image
 
-        # t1 = time.time()
         self.apply_filtering()
         self.compute_line_points()
         self.compute_contours()
         self.compute_line_width()
         self.prune_contours()
-        # t1 = time.time()
-        # contours, junctions = compute_contours(self.ismax, self.eigval,
-        #                                        self.normx, self.normy,
-        #                                        self.posx, self.posy,
-        #                                        self.derivatives[0, ...],
-        #                                        self.derivatives[1, ...],
-        #                                        self.sigma, extend=self.extend_line, mode=self.mode)
-        # print(f"Linking line points took {time.time() - t1} seconds.")
-        # t1 = time.time()
-        # contours = compute_line_width(self.derivatives[0, ...], self.derivatives[1, ...],
-        #                               self.sigma, contours, self.correct_pos)
-        # print(f"Computing line widths took {time.time() - t1} seconds.")
-        # t1 = time.time()
-        # self.contours, self.junctions = prune_contours(contours, junctions, self.min_len, self.max_len)
-        # print(f"Pruning short contours took {time.time() - t1} seconds.")
 
     def get_results(self):
         all_contour_points, all_width_left, all_width_right = [], [], []
