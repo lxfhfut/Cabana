@@ -11,7 +11,7 @@ from segmenter import generate_rois
 from models import BackBone, LightConv3x3
 from utils import mean_image, cal_color_dist
 from skimage.feature import peak_local_max
-from batch_processor import BatchProcessor
+from batch import BatchProcessor
 from sklearn.metrics.pairwise import euclidean_distances
 from skimage.morphology import remove_small_objects, remove_small_holes
 
