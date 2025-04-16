@@ -5,6 +5,7 @@ import datetime
 import colorlog
 import yaml
 from logging.handlers import RotatingFileHandler
+logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
 
 
 class Log:
