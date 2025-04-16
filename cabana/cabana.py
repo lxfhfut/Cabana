@@ -5,22 +5,22 @@ import shutil
 import warnings
 import numpy as np
 import pandas as pd
-from log import Log
-from hdm import HDM
+from .log import Log
+from .hdm import HDM
 from glob import glob
 from PIL import Image
 import tifffile as tiff
 import imageio.v3 as iio
 from pathlib import Path
-from detector import FibreDetector
-from analyzer import SkeletonAnalyzer
+from .detector import FibreDetector
+from .analyzer import SkeletonAnalyzer
 from skimage.feature import peak_local_max
-from orientation import OrientationAnalyzer
+from .orientation import OrientationAnalyzer
 from skimage.color import rgb2hed, hed2rgb, rgb2gray
 from sklearn.metrics.pairwise import euclidean_distances
-from utils import create_folder, join_path, mask_color_map
-from segmenter import parse_args, segment_single_image, visualize_fibres
-from utils import overlay_colorbar, color_survey_with_colorbar
+from .utils import create_folder, join_path, mask_color_map
+from .segmenter import parse_args, segment_single_image, visualize_fibres
+from .utils import overlay_colorbar, color_survey_with_colorbar
 
 
 class Cabana:

@@ -3,10 +3,10 @@ import cv2
 import time
 import imageio.v3 as iio
 import skimage as ski
-from constants import *
+from .constants import *
 import matplotlib.pyplot as plt
 from scipy.ndimage import convolve, gaussian_filter1d
-from utils import (LinesUtil, Junction, Crossref, Line, convolve_gauss,
+from .utils import (LinesUtil, Junction, Crossref, Line, convolve_gauss,
                    bresenham, fix_locations, interpolate_gradient_test,
                    closest_point, normalize_to_half_circle)
 

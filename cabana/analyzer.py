@@ -1,12 +1,12 @@
 import cv2
 import time
 import numpy as np
-from log import Log
+from .log import Log
 import networkx as nx
 from numba import jit
 import imageio.v3 as iio
 import scipy.ndimage as ndi
-from detector import FibreDetector
+from .detector import FibreDetector
 from scipy.interpolate import splprep, splev
 from skimage.morphology import skeletonize, remove_small_holes
 

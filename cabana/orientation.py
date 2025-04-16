@@ -6,7 +6,7 @@ from skimage.util import img_as_bool
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
-from utils import normalize
+from .utils import normalize
 
 
 class OrientationAnalyzer:

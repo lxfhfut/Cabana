@@ -4,14 +4,14 @@ import sys
 import yaml
 import imageio.v3 as iio
 from pathlib import Path
-from utils import join_path
+from .utils import join_path
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QSpinBox,
                              QVBoxLayout, QHBoxLayout, QTabWidget, QCheckBox,
                              QPushButton, QFileDialog, QSizePolicy, QColorDialog, QMessageBox)
 from PyQt5.QtGui import QIcon, QPalette
 
-from ui import *
+from .ui import *
 
 
 class MainWindow(QMainWindow):
@@ -1093,19 +1093,3 @@ class MainWindow(QMainWindow):
             }}
             QLabel {{ color: {color_to_stylesheet(COLORS['text'])}; }}
         """)
-
-
-def main():
-    # Enable High DPI display before creating QApplication
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    icon_path = Path(__file__).parent.parent / "cabana-logo.ico"
-    app.setWindowIcon(QIcon(str(icon_path)))
-    window.show()
-    sys.exit(app.exec_())
-
-if __name__ == "__main__":
-    main()

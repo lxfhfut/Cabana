@@ -20,7 +20,7 @@ import os
 import cv2
 import csv
 import imutils
-import convcrf
+from . import convcrf
 import argparse
 import numpy as np
 import torch.nn.init
@@ -28,11 +28,11 @@ from glob import glob
 from tqdm import tqdm
 from skimage import measure
 import torch.optim as optim
-from log import Log
+from .log import Log
 from torch.autograd import Variable
 from skimage.morphology import remove_small_objects, remove_small_holes
-from models import BackBone, LightConv3x3
-from utils import mean_image, cal_color_dist, save_result_video, read_bar_format
+from .models import BackBone, LightConv3x3
+from .utils import mean_image, cal_color_dist, save_result_video, read_bar_format
 
 # Set fixed seed for reproducible results
 SEED = 0

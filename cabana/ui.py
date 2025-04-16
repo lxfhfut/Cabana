@@ -1,17 +1,17 @@
 import cv2
 import torch
 import imutils
-import convcrf
+from . import convcrf
 import argparse
 import numpy as np
 from skimage import measure
-from detector import FibreDetector
+from .detector import FibreDetector
 from torch.autograd import Variable
-from segmenter import generate_rois
-from models import BackBone, LightConv3x3
-from utils import mean_image, cal_color_dist
+from .segmenter import generate_rois
+from .models import BackBone, LightConv3x3
+from .utils import mean_image, cal_color_dist
 from skimage.feature import peak_local_max
-from batch import BatchProcessor
+from .batch import BatchProcessor
 from sklearn.metrics.pairwise import euclidean_distances
 from skimage.morphology import remove_small_objects, remove_small_holes
 

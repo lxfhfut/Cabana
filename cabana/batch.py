@@ -23,14 +23,14 @@ from skimage.color import rgb2hed, hed2rgb, rgb2gray
 from sklearn.metrics.pairwise import euclidean_distances
 
 # Local application imports
-from log import Log
-from hdm import HDM
-from detector import FibreDetector
-from analyzer import SkeletonAnalyzer
-from orientation import OrientationAnalyzer
-from segmenter import parse_args, segment_single_image, visualize_fibres
-from version_info import get_version_info
-from utils import (
+from .log import Log
+from .hdm import HDM
+from .detector import FibreDetector
+from .analyzer import SkeletonAnalyzer
+from .orientation import OrientationAnalyzer
+from .segmenter import parse_args, segment_single_image, visualize_fibres
+from .version_info import get_version_info
+from .utils import (
     join_path, get_img_paths, create_folder, split2batches,
     contains_oversized, mask_color_map, sanitize_filename,
     read_bar_format, array_divide, overlay_colorbar,

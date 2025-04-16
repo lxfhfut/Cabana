@@ -10,10 +10,10 @@ from glob import glob
 import seaborn as sns
 from enum import Enum
 from numba import jit
-from constants import *
+from .constants import *
 import scipy.ndimage as ndi
 import seaborn_image as isns
-from correct import Correct
+from .correct import Correct
 # matplotlib.use('Agg', force=True)
 from PIL import Image, ExifTags
 from matplotlib.figure import Figure

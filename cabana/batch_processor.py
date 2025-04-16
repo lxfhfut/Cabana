@@ -5,16 +5,16 @@ import yaml
 import pandas as pd
 from glob import glob
 from pathlib import Path
-from utils import split2batches, contains_oversized
-from utils import create_folder, join_path, get_img_paths
-from version_info import get_version_info
-from batch import BatchCabana
+from .utils import split2batches, contains_oversized
+from .utils import create_folder, join_path, get_img_paths
+from .version_info import get_version_info
+from .batch import BatchCabana
 
 from tkinter import Tk
 from tkinter import filedialog
 import getpass
 import datetime
-from log import Log
+from .log import Log
 
 
 class BatchProcessor:

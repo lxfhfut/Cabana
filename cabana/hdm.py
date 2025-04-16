@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import imageio.v3 as iio
 from skimage import exposure
-from utils import join_path
+from .utils import join_path
 
 
 class HDM:
