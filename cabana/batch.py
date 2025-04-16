@@ -40,7 +40,7 @@ from utils import (
 
 class BatchCabana:
     def __init__(self, param_file, input_folder, out_folder,
-                 batch_size=5, batch_idx=0, ignore_large=True):
+                 batch_size=5, batch_idx=0, ignore_large=True, progress_callback=None):
         self.param_file = param_file
 
         self.args = None  # args for Cabana program
@@ -54,6 +54,7 @@ class BatchCabana:
         self.batch_idx = batch_idx
         self.batch_size = batch_size
         self.ignore_large = ignore_large
+        self.progress_callback = progress_callback
 
         # Create sub-folders in output directory
         self.roi_dir = join_path(self.output_folder, 'ROIs', "")
@@ -160,12 +161,13 @@ class BatchCabana:
         img_paths.sort()
         if self.args["Configs"]["Segmentation"]:
             Log.logger.info('Segmenting {} images in {}'.format(len(img_paths), self.input_folder))
-            for img_path in img_paths:
+            for i, img_path in enumerate(img_paths):
                 setattr(self.seg_args, 'input', img_path)
                 segment_single_image(self.seg_args)
+
         else:
             Log.logger.info("No segmentation is applied prior to image analysis.")
-            for img_path in img_paths:
+            for i, img_path in enumerate(img_paths):
                 setattr(self.seg_args, 'input', img_path)
                 img = cv2.imread(self.seg_args.input)
                 mask = np.ones((img.shape[0], img.shape[1]), dtype=np.uint8) * 255
@@ -199,7 +201,8 @@ class BatchCabana:
                             correct_pos=False,
                             min_len=min_len,
                             max_len=max_len)
-        for img_path in tqdm(glob(join_path(self.roi_dir, '*.png')), bar_format=read_bar_format):
+        img_paths = glob(join_path(self.roi_dir, '*.png'))
+        for img_path in tqdm(img_paths, bar_format=read_bar_format):
             det.detect_lines(img_path)
             contour_img, width_img, binary_contours, binary_widths, int_width_img = det.get_results()
 
@@ -233,8 +236,10 @@ class BatchCabana:
         alignments_hdm, variances_hdm = [], []
         alignments_width, variances_width = [], []
         img_names = []
-        Log.logger.info(f"Analyzing orientations for {len(glob(join_path(self.roi_dir, '*.png')))} images.")
-        for img_path in tqdm(glob(join_path(self.roi_dir, '*.png')), bar_format=read_bar_format):
+        img_paths = glob(join_path(self.roi_dir, '*.png'))
+        total_images = len(img_paths)
+        Log.logger.info(f"Analyzing orientations for {total_images} images.")
+        for img_path in tqdm(img_paths, bar_format=read_bar_format):
             ori_img_name = os.path.basename(img_path)
             img_names.append(ori_img_name)
             name_wo_ext = ori_img_name[:ori_img_name.rindex('.')]
@@ -321,9 +326,10 @@ class BatchCabana:
         curvatures = {}
         for win_sz in np.arange(min_curve_win, max_curve_win + curve_win_step, curve_win_step):
             curvatures[f"Curvature (win_sz={win_sz})"] = []
-
-        Log.logger.info(f"Quantifying skeletons for {len(glob(join_path(self.mask_dir, '*.png')))} images.")
-        for img_path in tqdm(glob(join_path(self.mask_dir, '*.png')), bar_format=read_bar_format):
+        img_paths = glob(join_path(self.mask_dir, '*.png'))
+        total_images = len(img_paths)
+        Log.logger.info(f"Quantifying skeletons for {total_images} images.")
+        for img_path in tqdm(img_paths, bar_format=read_bar_format):
             skel_analyzer.reset()
             skel_analyzer.analyze_image(img_path)
             ori_img_name = os.path.basename(img_path)
@@ -1043,7 +1049,6 @@ class BatchCabana:
                 self.generate_color_maps()
             else:
                 Log.logger.info('Segmentation is done. No further analysis will be conducted.')
-
 
 class BatchProcessor():
     """
