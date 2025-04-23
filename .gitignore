@@ -1,5 +1,6 @@
-TWOMBLI/Output/*
-TWOMBLI/Input
 */__pycache__/*
 *.log
 collagen_fibres/__pycache__/*.pyc
+docs/build/
+docs/cabana_results
+docs/cabana_params.yaml
