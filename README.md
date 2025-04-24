@@ -4,7 +4,7 @@
 [![Documentation Status](https://readthedocs.org/projects/cabana/badge/?version=latest)](https://cabana.readthedocs.io/en/latest/?badge=latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-CABANA (COllAgen FiBre ANAlyzer) is a comprehensive toolkit for analyzing collagen fibre architecture in immunohistochemistry (IHC) and fluorescence microscopy images. It provides:
+CABANA (CollAgen FiBre ANAlyzer) is a comprehensive toolkit for analyzing collagen fibre architecture in immunohistochemistry (IHC) and fluorescence microscopy images. It provides:
 
 - Automated detection and quantification of collagen fibres
 - Analysis of fibre orientation, length, and thickness
