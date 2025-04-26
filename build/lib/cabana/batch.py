@@ -436,7 +436,7 @@ class BatchCabana:
                 width_mask = cv2.imread(join_path(self.export_dir, name_wo_ext, name_wo_ext+"_Width.png"), 0)
                 hdm_mask = cv2.imread(join_path(self.hdm_dir, name), 0)
                 area_width = np.sum(width_mask < 128).astype(float)  # WIDTH area
-                percent_width = area_width / np.product(width_mask.shape[:2])  # % WIDTH area
+                percent_width = area_width / np.prod(width_mask.shape[:2])  # % WIDTH area
                 if np.count_nonzero(red_img < 180):
                     mean_intensity_roi = np.mean(red_img[(img_mask > 128) & (red_img < 180)])
                     mean_intensity_width = np.mean(red_img[(width_mask < 128) & (red_img < 180)])

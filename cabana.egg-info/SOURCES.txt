@@ -1,4 +1,5 @@
 LICENSE
+README.md
 setup.py
 cabana/__init__.py
 cabana/__main__.py

@@ -4,3 +4,8 @@ collagen_fibres/__pycache__/*.pyc
 docs/build/
 docs/cabana_results
 docs/cabana_params.yaml
+docs/.ipynb_checkpoints
+dist/*
+.idea/*
+*.egg-info/*
+build/*
