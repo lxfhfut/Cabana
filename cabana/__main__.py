@@ -12,7 +12,7 @@ def main():
 
     app = QApplication(sys.argv)
     window = MainWindow()
-    icon_path = Path(__file__).parent.parent / "cabana-logo.ico"
+    icon_path = Path(__file__).parent / "cabana-logo.ico"
     app.setWindowIcon(QIcon(str(icon_path)))
     window.show()
     sys.exit(app.exec_())
