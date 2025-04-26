@@ -1,0 +1,17 @@
+colorlog
+gitpython
+imutils
+jaraco.collections
+numba
+opencv-python
+pip-chill
+pyqt5
+pyyaml
+scikit-learn
+seaborn
+seaborn-image
+send2trash
+tomli
+torch
+tqdm
+twine

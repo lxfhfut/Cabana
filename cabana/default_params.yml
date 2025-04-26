@@ -1,0 +1,34 @@
+Configs:
+  Segmentation: True
+  Quantification: True
+  Gap Analysis: True
+
+Segmentation:
+  Number of Labels: 32
+  Max Iterations: 30
+  Normalized Hue Value: 0.96
+  Color Threshold: 0.2
+  Min Size: 64
+  Max Size: 2048
+
+Detection:
+  Dark Line: True
+  Min Line Width: 5
+  Max Line Width: 13
+  Line Width Step: 2
+  Low Contrast: 100
+  High Contrast: 200
+  Extend Line: False
+  Minimum Line Length: 5
+  Maximum Line Length: 0
+
+Quantification:
+  Maximum Display HDM: 230
+  Contrast Enhancement: 0.1
+  Minimum Branch Length: 5
+  Minimum Curvature Window: 10
+  Maximum Curvature Window: 30
+  Curvature Window Step: 10
+
+Gap Analysis:
+  Minimum Gap Diameter: 20
