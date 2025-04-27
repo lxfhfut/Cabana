@@ -1,6 +1,6 @@
 [//]: # (# CABANA - Collagen Fibre Analyzer)
 ![image](cabana.png)
-[![PyPI version](https://badge.fury.io/py/cabana.svg)](https://pypi.org/project/cabana/1.0.1/)
+[![PyPI version](https://badge.fury.io/py/cabana.svg)](https://pypi.org/project/cabana/0.0.1/)
 [![Documentation Status](https://readthedocs.org/projects/cabana/badge/?version=latest)](https://cabana.readthedocs.io/en/latest/?badge=latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
