@@ -11,24 +11,7 @@ logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
 class Log:
     def __init__(self):
         self.log_name = None
-        self.formatter = None
-        self.log_colors_config = None
-        self.logger = None
         self.log_path = None
-
-    def init_log_path(self, log_path=None):
-        if log_path:
-            self.log_path = log_path
-        else:
-            cur_path = os.path.dirname(os.path.realpath(__file__))
-            self.log_path = os.path.join(cur_path, 'logs')
-
-        # Logger
-        self.logger = logging.getLogger()
-        self.logger.handlers.clear()
-        self.logger.setLevel(logging.DEBUG)
-
-        # Formatter
         self.log_colors_config = {
             'DEBUG': 'green',
             'INFO': 'white',
@@ -38,8 +21,25 @@ class Log:
         }
         self.formatter = colorlog.ColoredFormatter(
             '%(log_color)s[%(levelname)s]- %(message)s',
-            # '%(log_color)s[%(asctime)s] [%(filename)s:%(lineno)d] [%(module)s:%(funcName)s] [%(levelname)s]- %(message)s',
             log_colors=self.log_colors_config)
+
+        # Always provide a usable logger so callers don't need to call
+        # init_log_path() before logging. init_log_path() upgrades this
+        # logger with a file handler when a batch run begins.
+        self.logger = logging.getLogger()
+        self.logger.handlers.clear()
+        self.logger.setLevel(logging.DEBUG)
+        stream_handler = logging.StreamHandler()
+        stream_handler.setLevel(logging.INFO)
+        stream_handler.setFormatter(self.formatter)
+        self.logger.addHandler(stream_handler)
+
+    def init_log_path(self, log_path=None):
+        if log_path:
+            self.log_path = log_path
+        else:
+            cur_path = os.path.dirname(os.path.realpath(__file__))
+            self.log_path = os.path.join(cur_path, 'logs')
 
         if not os.path.exists(self.log_path):
             os.mkdir(self.log_path)
@@ -49,13 +49,7 @@ class Log:
         # Clean old logs
         self.handle_logs()
 
-        # StreamHandler for outputting to console
-        stream_handler = logging.StreamHandler()
-        stream_handler.setLevel(logging.INFO)
-        stream_handler.setFormatter(self.formatter)
-        self.logger.addHandler(stream_handler)
-
-        # FileHandler for writing log files
+        # FileHandler for writing log files (added on top of the existing stream handler)
         fh = RotatingFileHandler(filename=self.log_name, mode='a', maxBytes=1024 * 1024 * 5, backupCount=5,
                                  encoding='utf-8')
         fh.setLevel(logging.DEBUG)
