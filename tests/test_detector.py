@@ -573,6 +573,94 @@ class TestEigh2x2Symmetric:
         assert eigvecs.shape == (H, W, 2, 2)
 
 
+class TestSignAwareSaliency:
+    """Polarity-aware saliency: detection works equally well in both modes.
+
+    Steger detection is mathematically symmetric to image inversion when
+    the dark/light mode is also flipped. Pre-fix, MODE_LIGHT picked the
+    least-negative saliency across scales (the over-smoothed, weakest
+    response), so bright-line detection was systematically biased.
+    """
+
+    def _bright_line(self, h=128, w=128, line_y=64, thickness=5,
+                     line_val=200, bg_val=20):
+        img = np.full((h, w), bg_val, dtype=np.uint8)
+        img[line_y - thickness // 2:line_y + thickness // 2 + 1, :] = line_val
+        return img
+
+    def test_mode_light_finds_contours(self):
+        """A bright line on dark background must produce non-empty contours
+        when the detector is run with dark_line=False."""
+        img = self._bright_line()
+        d = FibreDetector(line_widths=[5], dark_line=False, min_len=5)
+        d.detect_lines(img)
+        assert d.contours is not None
+        assert len(d.contours) > 0
+
+    def test_mode_light_saliency_positive_at_line_pixels(self):
+        """self.eigvals at chosen scale must be positive at ridge pixels in
+        both modes (the polarity correction is now baked in upstream)."""
+        img = self._bright_line()
+        d = FibreDetector(line_widths=[5], dark_line=False, min_len=5)
+        d.detect_lines(img)
+        # Inspect the row of pixels along the bright line
+        line_strip = d.eigvals[64, :, 0]
+        assert (line_strip > 0).any()
+        assert float(line_strip.max()) > 0.0
+
+    def test_polarity_symmetry(self):
+        """Bright line + dark_line=False  ≡  dark line + dark_line=True.
+
+        The Steger pipeline should produce the same number of contours and
+        the same total ridge length on an image and its 255-inverted twin
+        when the mode is flipped accordingly. Pre-fix, the MODE_LIGHT path
+        selected wrong scales and produced a different (worse) result.
+        """
+        bright = self._bright_line(line_val=200, bg_val=20)
+        dark = (255 - bright).astype(np.uint8)
+
+        d_bright = FibreDetector(line_widths=[5, 9], dark_line=False, min_len=5)
+        d_bright.detect_lines(bright)
+
+        d_dark = FibreDetector(line_widths=[5, 9], dark_line=True, min_len=5)
+        d_dark.detect_lines(dark)
+
+        # Same contour count
+        assert len(d_bright.contours) == len(d_dark.contours)
+        # Same total length (sum of edge step counts) within numerical noise
+        len_bright = sum(c.estimate_length() for c in d_bright.contours)
+        len_dark = sum(c.estimate_length() for c in d_dark.contours)
+        assert abs(len_bright - len_dark) < 1.0
+
+    def test_dark_line_mode_unchanged(self):
+        """Dark-line mode behaviour is unchanged by the fix (sign=+1 for
+        MODE_DARK is a no-op multiplication)."""
+        img = np.full((128, 128), 220, dtype=np.uint8)
+        img[62:67, :] = 50
+        d = FibreDetector(line_widths=[5], dark_line=True, min_len=5)
+        d.detect_lines(img)
+        assert len(d.contours) > 0
+        assert (d.eigvals[64, :, 0] > 0).any()
+
+    def test_real_shg_image_more_pixels_after_fix(self):
+        """On the real SHG asset (bright fibres) the fix recovers
+        substantially more ridge response than the pre-fix simulation."""
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "data", "SHG", "SFR01006_S2_LGESS_02.tif",
+        )
+        if not os.path.isfile(path):
+            pytest.skip(f"test asset not present: {path}")
+        d = FibreDetector(line_widths=[5, 9], dark_line=False, min_len=5)
+        d.detect_lines(path)
+        # Number of pixels with positive saliency at the chosen scale
+        positive_pixels = int((d.eigvals[..., 0] > 0).sum())
+        # Pre-fix benchmark on this asset was 388k positive pixels; the fix
+        # recovers ~588k. Use a generous lower bound that the broken scale
+        # selection cannot reach but the correct one comfortably does.
+        assert positive_pixels > 450_000
+
+
 class TestDetectorEquivalenceVsLapack:
     """Detector outputs are equivalent before/after the eigh replacement.
 

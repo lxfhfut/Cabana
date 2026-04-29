@@ -168,7 +168,17 @@ class FibreDetector:
             eigvals_tmp = np.take_along_axis(eigvals, idx, axis=-1)
             eigvecs_tmp = np.take_along_axis(eigvecs, idx[:, :, None, :], axis=-1)
 
-            saliency[:, :, scale_idx] = sigma ** self.gamma * eigvals_tmp[:, :, 0]
+            # Polarity-aware saliency. The principal Hessian eigenvalue at a
+            # ridge pixel is positive for a dark line on a bright background
+            # (intensity has a local minimum) and negative for a bright line
+            # on a dark background. argmax across scales picks the largest
+            # value, so we must build saliency with the sign that makes a
+            # genuine ridge response register as a large positive number for
+            # the requested polarity. Without this, MODE_LIGHT runs select
+            # the LEAST-negative saliency (the over-smoothed scale where the
+            # line is least sharp) instead of the strongest response.
+            sign = 1.0 if self.mode == LinesUtil.MODE_DARK else -1.0
+            saliency[:, :, scale_idx] = sigma ** self.gamma * sign * eigvals_tmp[:, :, 0]
             orientation[:, :, :, scale_idx] = eigvecs_tmp[:, :, :, 0]
 
             # store intermediate results
@@ -233,7 +243,11 @@ class FibreDetector:
         rxy = self.derivatives[3, ...]
         rxx = self.derivatives[4, ...]
 
-        val = self.eigvals[:, :, 0] if self.mode == LinesUtil.MODE_DARK else -self.eigvals[:, :, 0]
+        # self.eigvals stores the polarity-aware saliency at the per-pixel
+        # selected scale (apply_filtering bakes the mode sign in), so it is
+        # already positive for genuine ridges in BOTH dark- and light-line
+        # modes. No mode-dependent negation needed here.
+        val = self.eigvals[:, :, 0]
         val_mask = val > 0.0
         self.eigval[val_mask] = val[val_mask]
 
