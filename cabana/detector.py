@@ -4,6 +4,7 @@ import time
 import imageio.v3 as iio
 import skimage as ski
 from .constants import *
+from .log import Log
 import matplotlib.pyplot as plt
 from scipy.ndimage import convolve, gaussian_filter1d
 from .utils import (LinesUtil, Junction, Crossref, Line, convolve_gauss,
@@ -793,9 +794,36 @@ class FibreDetector:
     def detect_lines(self, image):
         self.image = iio.imread(image) if isinstance(image, str) else image
 
-        # Normalize to uint8 if needed
+        # Normalize non-uint8 inputs (e.g. 16-bit microscopy, float TIFFs) to
+        # uint8 using a percentile range. Min/max scaling is dominated by
+        # outliers (hot pixels, dead pixels, saturated reflections), which
+        # silently re-scales every image differently and breaks the meaning
+        # of the user-facing Low/High Contrast thresholds across acquisitions.
+        # Using the (0.5, 99.5) percentiles caps the influence of a small
+        # fraction of extreme pixels at each end while preserving the bulk of
+        # the dynamic range.
         if self.image.dtype != np.uint8:
-            self.image = ((image - image.min()) / (image.max() - image.min()) * 255).astype(np.uint8)
+            img_arr = self.image.astype(np.float64)
+            lo, hi = np.percentile(img_arr, (0.5, 99.5))
+            dyn = hi - lo
+            if dyn < np.finfo(float).eps:
+                Log.logger.warning(
+                    f"Detector input has zero dynamic range "
+                    f"(p0.5={lo:.3g}, p99.5={hi:.3g}); producing a blank image."
+                )
+                self.image = np.zeros(img_arr.shape, dtype=np.uint8)
+            else:
+                if dyn < 50.0 * (np.iinfo(self.image.dtype).max / 255.0
+                                 if np.issubdtype(self.image.dtype, np.integer)
+                                 else 1.0):
+                    Log.logger.warning(
+                        f"Detector input has very low dynamic range "
+                        f"(p99.5 - p0.5 = {dyn:.3g} in original units); "
+                        f"contrast thresholds may not behave as expected."
+                    )
+                self.image = np.clip(
+                    (img_arr - lo) / dyn * 255.0, 0, 255
+                ).astype(np.uint8)
 
         # Convert to grayscale
         self.gray = cv2.cvtColor(self.image, cv2.COLOR_RGB2GRAY) if self.image.ndim == 3 else self.image
