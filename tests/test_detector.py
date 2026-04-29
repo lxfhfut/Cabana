@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cabana.detector import FibreDetector
+from cabana.detector import FibreDetector, _eigh_2x2_symmetric
 
 
 def make_gray_image_with_line(h=128, w=128, line_y=64, thickness=5):
@@ -453,3 +453,179 @@ class TestStegerThresholdContinuity:
         # floored version implies fewer-or-equal but not zero contours.
         assert d.contours is not None
         assert len(d.contours) > 0
+
+
+# ---------------------------------------------------------------------------
+# Closed-form 2x2 symmetric eigendecomposition
+# ---------------------------------------------------------------------------
+
+class TestEigh2x2Symmetric:
+    """Verify the closed-form helper matches np.linalg.eigh exactly.
+
+    Eigenvalues are byte-equal to floating-point precision because the two
+    formulations are algebraically identical. Eigenvectors of a symmetric
+    matrix are unique only up to sign, so the test matches against either
+    +/- the LAPACK eigenvector.
+    """
+
+    def test_diagonal_matrix(self):
+        a, b, c = 2.0, 0.0, 1.0
+        eigvals, _ = _eigh_2x2_symmetric(np.array(a), np.array(b), np.array(c))
+        np.testing.assert_allclose(eigvals, [1.0, 2.0])
+
+    def test_constant_off_diagonal(self):
+        # M = [[1, 1], [1, 1]] -> eigvals 0, 2
+        eigvals, eigvecs = _eigh_2x2_symmetric(
+            np.array(1.0), np.array(1.0), np.array(1.0)
+        )
+        np.testing.assert_allclose(eigvals, [0.0, 2.0])
+        # Verify M v = lam v for both eigenvectors
+        M = np.array([[1.0, 1.0], [1.0, 1.0]])
+        for k in range(2):
+            v = eigvecs[:, k]
+            lam = eigvals[k]
+            np.testing.assert_allclose(M @ v, lam * v, atol=1e-12)
+
+    def test_zero_matrix(self):
+        eigvals, eigvecs = _eigh_2x2_symmetric(
+            np.array(0.0), np.array(0.0), np.array(0.0)
+        )
+        np.testing.assert_allclose(eigvals, [0.0, 0.0])
+        # Eigenvectors must still be orthonormal
+        assert abs(np.dot(eigvecs[:, 0], eigvecs[:, 1])) < 1e-12
+        assert abs(np.linalg.norm(eigvecs[:, 0]) - 1.0) < 1e-12
+        assert abs(np.linalg.norm(eigvecs[:, 1]) - 1.0) < 1e-12
+
+    def test_eigenvalues_match_numpy_random(self):
+        """Eigenvalues match np.linalg.eigh on random symmetric matrices."""
+        rng = np.random.default_rng(42)
+        n = 1000
+        a = rng.standard_normal(n)
+        b = rng.standard_normal(n)
+        c = rng.standard_normal(n)
+
+        # Build (n, 2, 2) for numpy reference
+        M = np.empty((n, 2, 2))
+        M[:, 0, 0] = a
+        M[:, 0, 1] = b
+        M[:, 1, 0] = b
+        M[:, 1, 1] = c
+        ref_vals, ref_vecs = np.linalg.eigh(M)
+
+        ours_vals, ours_vecs = _eigh_2x2_symmetric(a, b, c)
+
+        np.testing.assert_allclose(ours_vals, ref_vals, atol=1e-12)
+
+        # Eigenvectors: columns must match up to sign
+        for k in range(2):
+            dot = np.einsum('ni,ni->n', ours_vecs[..., :, k], ref_vecs[..., :, k])
+            # |dot| should be ~1 (parallel or antiparallel)
+            np.testing.assert_allclose(np.abs(dot), 1.0, atol=1e-10)
+
+    def test_satisfies_eigen_equation_random(self):
+        """For each eigenpair (lam, v): M @ v = lam * v."""
+        rng = np.random.default_rng(7)
+        n = 500
+        a = rng.standard_normal(n)
+        b = rng.standard_normal(n)
+        c = rng.standard_normal(n)
+        eigvals, eigvecs = _eigh_2x2_symmetric(a, b, c)
+        for i in range(n):
+            M = np.array([[a[i], b[i]], [b[i], c[i]]])
+            for k in range(2):
+                v = eigvecs[i, :, k]
+                lam = eigvals[i, k]
+                np.testing.assert_allclose(M @ v, lam * v, atol=1e-10)
+
+    def test_orthonormal_eigenvectors(self):
+        rng = np.random.default_rng(13)
+        n = 200
+        a = rng.standard_normal(n)
+        b = rng.standard_normal(n)
+        c = rng.standard_normal(n)
+        _, eigvecs = _eigh_2x2_symmetric(a, b, c)
+        # Each pair of columns should be orthonormal
+        v0 = eigvecs[..., :, 0]
+        v1 = eigvecs[..., :, 1]
+        np.testing.assert_allclose(np.einsum('ni,ni->n', v0, v0), 1.0, atol=1e-12)
+        np.testing.assert_allclose(np.einsum('ni,ni->n', v1, v1), 1.0, atol=1e-12)
+        np.testing.assert_allclose(np.einsum('ni,ni->n', v0, v1), 0.0, atol=1e-12)
+
+    def test_ascending_order(self):
+        """eigvals[..., 0] <= eigvals[..., 1] always."""
+        rng = np.random.default_rng(99)
+        n = 1000
+        a = rng.standard_normal(n) * 100
+        b = rng.standard_normal(n) * 100
+        c = rng.standard_normal(n) * 100
+        eigvals, _ = _eigh_2x2_symmetric(a, b, c)
+        assert (eigvals[..., 0] <= eigvals[..., 1] + 1e-12).all()
+
+    def test_2d_image_shape_preserved(self):
+        """Helper accepts (H, W) arrays and returns (H, W, 2) and (H, W, 2, 2)."""
+        H, W = 32, 48
+        rng = np.random.default_rng(2)
+        a = rng.standard_normal((H, W))
+        b = rng.standard_normal((H, W))
+        c = rng.standard_normal((H, W))
+        eigvals, eigvecs = _eigh_2x2_symmetric(a, b, c)
+        assert eigvals.shape == (H, W, 2)
+        assert eigvecs.shape == (H, W, 2, 2)
+
+
+class TestDetectorEquivalenceVsLapack:
+    """Detector outputs are equivalent before/after the eigh replacement.
+
+    We re-run the detector on the synthetic asset, monkey-patching the
+    closed-form helper out and back in, and assert the contour set is
+    byte-identical or numerically equivalent.
+    """
+
+    def test_synthetic_image_contours_match_lapack(self):
+        """Detector contours obtained with closed-form match LAPACK to <1e-9."""
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "data", "Synthetic", "5001f5e89da92cce.png",
+        )
+        if not os.path.isfile(path):
+            pytest.skip(f"test asset not present: {path}")
+
+        # Closed-form result
+        d_new = FibreDetector(line_widths=[5, 9], dark_line=True, min_len=5)
+        d_new.detect_lines(path)
+
+        # LAPACK reference: monkey-patch a copy that re-builds the (H,W,2,2)
+        # tensor and calls np.linalg.eigh, mirroring the pre-fix code.
+        import cabana.detector as det_mod
+
+        orig_helper = det_mod._eigh_2x2_symmetric
+
+        def _eigh_via_lapack(a, b, c):
+            shp = np.broadcast_shapes(a.shape, b.shape, c.shape)
+            a_b = np.broadcast_to(a, shp)
+            b_b = np.broadcast_to(b, shp)
+            c_b = np.broadcast_to(c, shp)
+            M = np.empty(shp + (2, 2), dtype=float)
+            M[..., 0, 0] = a_b
+            M[..., 0, 1] = b_b
+            M[..., 1, 0] = b_b
+            M[..., 1, 1] = c_b
+            return np.linalg.eigh(M)
+
+        det_mod._eigh_2x2_symmetric = _eigh_via_lapack
+        try:
+            d_ref = FibreDetector(line_widths=[5, 9], dark_line=True, min_len=5)
+            d_ref.detect_lines(path)
+        finally:
+            det_mod._eigh_2x2_symmetric = orig_helper
+
+        # Same number of contours
+        assert len(d_new.contours) == len(d_ref.contours)
+        # Contour points byte-equivalent to FP precision
+        for c_new, c_ref in zip(d_new.contours, d_ref.contours):
+            np.testing.assert_allclose(c_new.row, c_ref.row, atol=1e-9)
+            np.testing.assert_allclose(c_new.col, c_ref.col, atol=1e-9)
+            np.testing.assert_allclose(c_new.angle, c_ref.angle, atol=1e-9)
+            if c_new.width_l is not None and c_ref.width_l is not None:
+                np.testing.assert_allclose(c_new.width_l, c_ref.width_l, atol=1e-9)
+                np.testing.assert_allclose(c_new.width_r, c_ref.width_r, atol=1e-9)
