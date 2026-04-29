@@ -3,6 +3,7 @@
 import os
 import sys
 
+import networkx as nx
 import numpy as np
 import pytest
 
@@ -212,3 +213,159 @@ class TestAnalyzeImage:
         analyzer.analyze_image(img)
         # total_length stays 0 because processing is skipped
         assert analyzer.total_length == 0.0
+
+
+# ---------------------------------------------------------------------------
+# calc_total_len — Euclidean path length
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def light_analyzer():
+    """Analyzer configured for white-fibre-on-black-background test inputs."""
+    return SkeletonAnalyzer(skel_thresh=5, branch_thresh=3, hole_threshold=4, dark_line=False)
+
+
+def _make_diagonal_line_image(h=64, w=64):
+    """1-pixel-wide diagonal from (5,5) to (h-6, w-6) inclusive."""
+    img = np.zeros((h, w), dtype=np.uint8)
+    n = min(h, w) - 10
+    for i in range(n):
+        img[5 + i, 5 + i] = 255
+    return img
+
+
+def _make_thin_horizontal_line(h=64, w=64, line_y=32, c0=5, c1=58):
+    """Single-pixel-thick horizontal segment from (line_y, c0) to (line_y, c1)."""
+    img = np.zeros((h, w), dtype=np.uint8)
+    img[line_y, c0:c1 + 1] = 255
+    return img
+
+
+def _make_thin_vertical_line(h=64, w=64, line_x=32, r0=5, r1=58):
+    """Single-pixel-thick vertical segment from (r0, line_x) to (r1, line_x)."""
+    img = np.zeros((h, w), dtype=np.uint8)
+    img[r0:r1 + 1, line_x] = 255
+    return img
+
+
+def _make_two_separate_lines(h=64, w=64):
+    """Two parallel single-pixel-thick horizontal lines."""
+    img = np.zeros((h, w), dtype=np.uint8)
+    img[15, 5:30] = 255
+    img[45, 35:60] = 255
+    return img
+
+
+class TestCalcTotalLenUnit:
+    """Unit tests on calc_total_len() with manually constructed subgraphs."""
+
+    def test_empty_subgraphs_zero(self):
+        a = SkeletonAnalyzer()
+        a.subgraphs = []
+        a.calc_total_len()
+        assert a.total_length == 0.0
+
+    def test_single_edge_uses_stored_length(self):
+        a = SkeletonAnalyzer()
+        G = nx.Graph()
+        G.add_edge((0, 0), (0, 5), length=5.0, path=[(0, i) for i in range(6)], type='end-to-end')
+        a.subgraphs = [G]
+        a.calc_total_len()
+        assert a.total_length == pytest.approx(5.0, abs=1e-9)
+
+    def test_diagonal_edge_uses_sqrt2(self):
+        """A 5-step diagonal stores length 5*sqrt(2); calc_total_len returns it as-is."""
+        a = SkeletonAnalyzer()
+        G = nx.Graph()
+        path = [(i, i) for i in range(6)]
+        G.add_edge(path[0], path[-1], length=5.0 * np.sqrt(2.0), path=path, type='end-to-end')
+        a.subgraphs = [G]
+        a.calc_total_len()
+        assert a.total_length == pytest.approx(5.0 * np.sqrt(2.0), abs=1e-9)
+
+    def test_sums_across_multiple_edges(self):
+        """Three legs of a star: total = sum of edge lengths."""
+        a = SkeletonAnalyzer()
+        G = nx.Graph()
+        G.add_edge((0, 0), (0, 5), length=5.0, path=[], type='end-to-brh')
+        G.add_edge((0, 5), (5, 5), length=5.0, path=[], type='end-to-brh')
+        G.add_edge((0, 5), (0, 10), length=5.0, path=[], type='end-to-brh')
+        a.subgraphs = [G]
+        a.calc_total_len()
+        assert a.total_length == pytest.approx(15.0, abs=1e-9)
+
+    def test_sums_across_multiple_subgraphs(self):
+        a = SkeletonAnalyzer()
+        G1 = nx.Graph()
+        G1.add_edge((0, 0), (0, 5), length=5.0, path=[], type='end-to-end')
+        G2 = nx.Graph()
+        G2.add_edge((10, 0), (10, 7), length=7.0, path=[], type='end-to-end')
+        a.subgraphs = [G1, G2]
+        a.calc_total_len()
+        assert a.total_length == pytest.approx(12.0, abs=1e-9)
+
+    def test_returns_float(self):
+        """Result must be a python float, not int/numpy int."""
+        a = SkeletonAnalyzer()
+        a.subgraphs = []
+        a.calc_total_len()
+        assert isinstance(a.total_length, float)
+
+
+class TestCalcTotalLenIntegration:
+    """End-to-end checks using analyze_image on synthetic binary fixtures."""
+
+    def test_horizontal_line_exact_step_count(self, light_analyzer):
+        """N-pixel-wide skeleton spans (N-1) cardinal steps of length 1."""
+        img = _make_thin_horizontal_line(c0=5, c1=58)
+        light_analyzer.analyze_image(img)
+        # 54 foreground pixels (cols 5..58), 53 unit steps between them.
+        assert light_analyzer.total_length == pytest.approx(53.0, abs=1e-9)
+
+    def test_vertical_line_exact_step_count(self, light_analyzer):
+        img = _make_thin_vertical_line(r0=5, r1=58)
+        light_analyzer.analyze_image(img)
+        assert light_analyzer.total_length == pytest.approx(53.0, abs=1e-9)
+
+    def test_diagonal_line_uses_sqrt2(self, light_analyzer):
+        """Diagonal of 54 pixels has 53 diagonal steps, each sqrt(2) long."""
+        img = _make_diagonal_line_image()
+        light_analyzer.analyze_image(img)
+        assert light_analyzer.total_length == pytest.approx(53.0 * np.sqrt(2.0), abs=1e-9)
+
+    def test_diagonal_strictly_longer_than_horizontal(self, light_analyzer):
+        """For equal pixel count, diagonal must report a larger length than horizontal."""
+        img_h = _make_thin_horizontal_line(c0=5, c1=58)
+        img_d = _make_diagonal_line_image()  # spans 54 diag pixels — same count
+        a1 = SkeletonAnalyzer(skel_thresh=5, branch_thresh=3, hole_threshold=4, dark_line=False)
+        a2 = SkeletonAnalyzer(skel_thresh=5, branch_thresh=3, hole_threshold=4, dark_line=False)
+        a1.analyze_image(img_h)
+        a2.analyze_image(img_d)
+        assert a2.total_length > a1.total_length
+
+    def test_two_disjoint_lines_sum(self, light_analyzer):
+        """Two horizontal lines: total length is sum of individual step counts."""
+        img = _make_two_separate_lines()
+        light_analyzer.analyze_image(img)
+        # img[15, 5:30]  -> 25 pixels, 24 steps
+        # img[45, 35:60] -> 25 pixels, 24 steps
+        # total = 48
+        assert light_analyzer.total_length == pytest.approx(48.0, abs=1e-9)
+
+    def test_real_synthetic_image_finite_positive(self, light_analyzer):
+        """Regression: real synthetic IHC mask gives a finite, positive Euclidean length."""
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "data", "Synthetic", "5001f5e89da92cce.png",
+        )
+        if not os.path.isfile(path):
+            pytest.skip(f"test asset not present: {path}")
+        # The asset is an RGB photomicrograph; binarise it before analysis.
+        import imageio.v3 as iio
+        img = iio.imread(path)
+        if img.ndim == 3:
+            img = img[..., 0]
+        binary = (img > 127).astype(np.uint8) * 255
+        light_analyzer.analyze_image(binary)
+        assert np.isfinite(light_analyzer.total_length)
+        assert light_analyzer.total_length > 0.0

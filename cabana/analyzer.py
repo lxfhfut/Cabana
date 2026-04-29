@@ -833,12 +833,26 @@ class SkeletonAnalyzer:
 
     def calc_total_len(self):
         """
-        Calculate the total length of the skeleton.
+        Calculate the total Euclidean length of the pruned skeleton.
 
-        This is a simple count of foreground pixels in the pruned image.
-        The result is stored in self.total_length.
+        Sums the per-edge cumulative Euclidean step lengths stored in every
+        connected subgraph. A diagonal step contributes sqrt(2), a cardinal
+        step contributes 1, so the result is the true geometric length of
+        the skeleton, not a pixel count.
+
+        Components with no endpoints and no branch points (pure cycles) are
+        not represented as graph edges and therefore contribute zero. Their
+        pixels remain in pruned_image but are excluded from total_length;
+        this is consistent with how every other graph-derived metric in this
+        class treats such components.
+
+        The result is stored in self.total_length as a float (units: pixels).
         """
-        self.total_length = np.sum(self.pruned_image == self.FOREGROUND)
+        total = 0.0
+        for G in self.subgraphs:
+            for _, _, a in G.edges(data=True):
+                total += a['length']
+        self.total_length = float(total)
 
     def calc_growth_unit(self):
         """
