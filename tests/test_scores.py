@@ -203,3 +203,134 @@ class TestComputeScores:
         compute_scores(df, out)
         result = pd.read_csv(out)
         assert len(result) == n
+
+
+# ---------------------------------------------------------------------------
+# Decimal formatting consistency with QuantificationResults.csv
+# ---------------------------------------------------------------------------
+
+def _decimal_places(text):
+    """Return the number of digits after the decimal point in a numeric token,
+    or 0 if no decimal point is present."""
+    if '.' not in text:
+        return 0
+    return len(text.split('.', 1)[1])
+
+
+def _max_decimals_in_csv(path):
+    """Return the largest number of decimal places observed in any numeric
+    cell across the file (excluding scientific-notation / non-numeric)."""
+    max_dp = 0
+    with open(path, 'r', encoding='utf-8') as f:
+        header = f.readline()  # skip column names
+        for line in f:
+            for cell in line.rstrip('\n').split(','):
+                cell = cell.strip()
+                if not cell or cell.lower() in {'nan', 'inf', '-inf'}:
+                    continue
+                # Skip scientific-notation tokens; %.3f never produces them.
+                if 'e' in cell or 'E' in cell:
+                    continue
+                # Only consider tokens that parse as a float.
+                try:
+                    float(cell)
+                except ValueError:
+                    continue
+                max_dp = max(max_dp, _decimal_places(cell))
+    return max_dp
+
+
+class TestCsvDecimalFormatting:
+    """Per-patient stats and scores CSVs use %.3f, matching QuantificationResults.csv."""
+
+    def _make_df(self):
+        return pd.DataFrame({
+            'Image': [
+                'K1.vsi - BF _01Annotation (Tumor)_1_roi.png',
+                'K1.vsi - BF _01Annotation (Tumor)_2_roi.png',
+                'K2.vsi - BF _01Annotation (Tumor)_1_roi.png',
+                'K2.vsi - BF _01Annotation (Tumor)_2_roi.png',
+            ],
+            # Values that produce many decimals when written without format.
+            'Length': [10.123456789, 20.987654321, 30.111111111, 40.222222222],
+            'Width':  [1.0 / 3.0, 2.0 / 3.0, 1.0 / 7.0, 2.0 / 7.0],
+        })
+
+    def test_mean_std_sem_csv_uses_three_decimals(self, tmp_path):
+        out = str(tmp_path / "stats.csv")
+        generate_mean_std_sem(self._make_df(), output_path=out)
+        # Every numeric cell that has decimals should have exactly 3.
+        # %.3f format guarantees no cell exceeds 3 decimals.
+        assert _max_decimals_in_csv(out) <= 3
+
+    def test_mean_std_sem_no_full_precision_floats(self, tmp_path):
+        """Without the float_format fix the file would contain values like
+        '0.4444444444444444' (16 decimal places). Verify the cap is < 4."""
+        out = str(tmp_path / "stats.csv")
+        generate_mean_std_sem(self._make_df(), output_path=out)
+        with open(out, 'r', encoding='utf-8') as f:
+            content = f.read()
+        # No cell should have 4+ decimal places.
+        # A simple regex: digit, dot, then 4+ digits = bad.
+        import re
+        assert re.search(r'\d\.\d{4,}', content) is None, (
+            f"Found floats with >3 decimals in {out}:\n{content[:500]}"
+        )
+
+    def test_scores_csv_uses_three_decimals(self, tmp_path):
+        # Build aggregated DF with required columns, then write scores.
+        np.random.seed(7)
+        n = 6
+        agg_df = pd.DataFrame({
+            'Patient': [f'P{i}' for i in range(n)],
+            'No. of ROIs': [3] * n,
+            'Image Type': ['BF'] * n,
+            'Tissue Type': ['Tumor'] * n,
+            'Avg Thickness (WIDTH, µm) MEAN': np.random.rand(n) * 5,
+            'Orient. Alignment (WIDTH) MEAN': np.random.rand(n),
+            'Fibre Coverage (WIDTH/ROI) MEAN': np.random.rand(n),
+            'Endpoints Density (µm⁻¹) MEAN': np.random.rand(n) * 0.1,
+            'Box-Counting Fractal Dimension MEAN': np.random.rand(n) + 1,
+            'Curvature (win_sz=10) MEAN': np.random.rand(n) * 0.5,
+        })
+        out = str(tmp_path / "scores.csv")
+        compute_scores(agg_df, out)
+        assert _max_decimals_in_csv(out) <= 3
+
+    def test_scores_csv_no_full_precision_floats(self, tmp_path):
+        np.random.seed(7)
+        n = 6
+        agg_df = pd.DataFrame({
+            'Patient': [f'P{i}' for i in range(n)],
+            'No. of ROIs': [3] * n,
+            'Image Type': ['BF'] * n,
+            'Tissue Type': ['Tumor'] * n,
+            'Avg Thickness (WIDTH, µm) MEAN': np.random.rand(n) * 5,
+            'Orient. Alignment (WIDTH) MEAN': np.random.rand(n),
+            'Fibre Coverage (WIDTH/ROI) MEAN': np.random.rand(n),
+            'Endpoints Density (µm⁻¹) MEAN': np.random.rand(n) * 0.1,
+            'Box-Counting Fractal Dimension MEAN': np.random.rand(n) + 1,
+            'Curvature (win_sz=10) MEAN': np.random.rand(n) * 0.5,
+        })
+        out = str(tmp_path / "scores.csv")
+        compute_scores(agg_df, out)
+        with open(out, 'r', encoding='utf-8') as f:
+            content = f.read()
+        import re
+        assert re.search(r'\d\.\d{4,}', content) is None, (
+            f"Found floats with >3 decimals in {out}:\n{content[:500]}"
+        )
+
+    def test_integer_columns_unchanged(self, tmp_path):
+        """%.3f only applies to floats; integer columns like 'No. of ROIs'
+        must still serialize as integers (no '3.000')."""
+        out = str(tmp_path / "stats.csv")
+        generate_mean_std_sem(self._make_df(), output_path=out)
+        df_back = pd.read_csv(out)
+        assert df_back['No. of ROIs'].dtype.kind in ('i', 'u')
+
+    def test_string_columns_unchanged(self, tmp_path):
+        out = str(tmp_path / "stats.csv")
+        generate_mean_std_sem(self._make_df(), output_path=out)
+        df_back = pd.read_csv(out)
+        assert df_back['Patient'].iloc[0] == 'K1'

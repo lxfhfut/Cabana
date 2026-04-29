@@ -144,7 +144,9 @@ def generate_mean_std_sem(df, output_path=None):
     agg_df = pd.DataFrame(rows)
 
     if output_path is not None:
-        agg_df.to_csv(output_path, index=False)
+        # Match QuantificationResults.csv float formatting so the three
+        # result CSVs render with identical decimal precision.
+        agg_df.to_csv(output_path, index=False, float_format="%.3f")
         logger.info(f"Per-patient statistics written to {output_path}")
 
     return agg_df
@@ -215,5 +217,5 @@ def compute_scores(agg_df, output_path):
     out_df['Rigidity Score'] = rigidity
     out_df['Bundling Score'] = bundling
 
-    out_df.to_csv(output_path, index=False)
+    out_df.to_csv(output_path, index=False, float_format="%.3f")
     logger.info(f"Collagen risk scores written to {output_path}")
