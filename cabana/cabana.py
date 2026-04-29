@@ -261,9 +261,14 @@ class Cabana:
 
         orient_analyzer.compute_orient(img_path)
 
-        # Store metrics in stats dataframe
-        self.stats.loc[0, 'Orient. Alignment'] = orient_analyzer.mean_coherency()
-        self.stats.loc[0, 'Orient. Variance'] = orient_analyzer.circular_variance()
+        # Store metrics in stats dataframe.
+        # The unsuffixed columns are the primary scientific readouts and must be
+        # restricted to the fibre region: structure-tensor values outside the
+        # ROI are dominated by background noise and contaminate any cross-image
+        # comparison. The (ROI) suffixed columns retain their explicit name for
+        # backward compatibility and now alias the unsuffixed values.
+        self.stats.loc[0, 'Orient. Alignment'] = orient_analyzer.mean_coherency(mask=mask_roi)
+        self.stats.loc[0, 'Orient. Variance'] = orient_analyzer.circular_variance(mask=mask_roi)
         self.stats.loc[0, 'Orient. Alignment (ROI)'] = orient_analyzer.mean_coherency(mask=mask_roi)
         self.stats.loc[0, 'Orient. Variance (ROI)'] = orient_analyzer.circular_variance(mask=mask_roi)
         self.stats.loc[0, 'Orient. Alignment (HDM)'] = orient_analyzer.mean_coherency(mask=mask_hdm)
@@ -275,7 +280,7 @@ class Cabana:
         self.energy_img = orient_analyzer.get_energy_image()
         self.coherency_img = orient_analyzer.get_coherency_image()
         self.orientation_img = orient_analyzer.get_orientation_image()
-        self.orient_color_survey = orient_analyzer.draw_color_survey()
+        self.orient_color_survey = orient_analyzer.draw_color_survey(mask=mask_roi)
         self.orient_vector_field = orient_analyzer.draw_vector_field(mask_roi / 255.0)
         self.angular_hist = orient_analyzer.draw_angular_hist(mask=mask_roi)
 

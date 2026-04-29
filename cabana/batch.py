@@ -259,8 +259,11 @@ class BatchCabana:
             mask_hdm = (iio.imread(join_path(self.hdm_dir, name_wo_ext[:-4]+"_roi.png")) > 0).astype(np.uint8)*255
             mask_width = 255 - iio.imread(join_path(self.export_dir, name_wo_ext[:-4]+"_roi", name_wo_ext[:-4]+"_roi_Width.png"))
             orient_analyzer.compute_orient(img_path)
-            alignments.append(orient_analyzer.mean_coherency())
-            variances.append(orient_analyzer.circular_variance())
+            # Default (unsuffixed) aggregates are restricted to the fibre ROI so
+            # they describe fibre alignment rather than background structure.
+            # See cabana.Cabana.analyze_orientation for the rationale.
+            alignments.append(orient_analyzer.mean_coherency(mask=mask_roi))
+            variances.append(orient_analyzer.circular_variance(mask=mask_roi))
             alignments_roi.append(orient_analyzer.mean_coherency(mask=mask_roi))
             variances_roi.append(orient_analyzer.circular_variance(mask=mask_roi))
             alignments_hdm.append(orient_analyzer.mean_coherency(mask=mask_hdm))
@@ -280,7 +283,7 @@ class BatchCabana:
                 orient_analyzer.get_orientation_image())
             iio.imwrite(join_path(
                 self.export_dir, name_wo_ext, name_wo_ext + "_Color_Survey.tif"),
-                orient_analyzer.draw_color_survey())
+                orient_analyzer.draw_color_survey(mask=mask_roi))
 
             # export vector fields and angular hists to 'Color' folder
             iio.imwrite(join_path(

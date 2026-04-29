@@ -241,3 +241,187 @@ class TestDrawColorSurvey:
     def test_shape_matches_input(self, computed):
         result = computed.draw_color_survey()
         assert result.shape[:2] == (64, 64)
+
+
+# ---------------------------------------------------------------------------
+# ROI invariance — masked aggregates must not depend on background pixels
+# ---------------------------------------------------------------------------
+
+# OrientationAnalyzer applies two Gaussian blurs (sigma_eff ≈ sqrt(2)*sigma).
+# A mask whose boundary lies within ~3*sigma_eff of background pixels will
+# pick up smoothed-in background signal, breaking the invariance contract.
+# To test the contract cleanly, separate fibre and background by a wide
+# buffer and use an interior mask well clear of the boundary.
+_FIBRE_HALF = 40   # half-height of the bright fibre stripe (px)
+_MASK_HALF = 6     # half-height of the interior ROI mask (px)
+
+
+def _make_aligned_fibre_image(h=128, w=128, fibre_half=_FIBRE_HALF,
+                              noise_seed=None, bg_value=0):
+    """RGB image with horizontally-aligned texture in a central band.
+
+    The fibre band (rows h//2 ± fibre_half) is filled with thin parallel
+    horizontal stripes (period 4 px), so gradient is purely vertical and
+    the structure-tensor orientation is horizontal everywhere inside.
+
+    Outside the band, the image is either uniform (clean) or filled with
+    reproducible noise (noisy). The fibre band is byte-identical across
+    calls; only the background differs.
+    """
+    img = np.full((h, w), bg_value, dtype=np.uint8)
+    # Horizontal stripes within the fibre band.
+    yy = np.arange(h)[:, None]  # (h, 1)
+    stripe = (np.cos(2 * np.pi * yy / 4) * 60 + 140).astype(np.uint8)  # (h, 1)
+    stripe = np.broadcast_to(stripe, (h, w)).copy()
+    band_top = h // 2 - fibre_half
+    band_bot = h // 2 + fibre_half
+    img[band_top:band_bot, :] = stripe[band_top:band_bot, :]
+    if noise_seed is not None:
+        rng_bg = np.random.default_rng(noise_seed)
+        bg_noise = rng_bg.integers(0, 200, size=(h, w), dtype=np.int16)
+        outside = np.ones((h, w), dtype=bool)
+        outside[band_top:band_bot, :] = False
+        img[outside] = bg_noise[outside].astype(np.uint8)
+    return np.stack([img] * 3, axis=-1)
+
+
+def _fibre_mask(h=128, w=128, mask_half=_MASK_HALF):
+    """Interior mask: covers only the central rows of the fibre stripe."""
+    m = np.zeros((h, w), dtype=np.uint8)
+    m[h // 2 - mask_half:h // 2 + mask_half, :] = 255
+    return m
+
+
+class TestROIInvariance:
+    """Aggregates restricted to the fibre mask must not depend on background.
+
+    These tests pin the scientific contract that motivated the
+    cabana.Cabana.analyze_orientation fix: the "default" alignment and
+    variance numbers (those passed to a downstream user) must describe the
+    fibre region only, not the structure of the background.
+    """
+
+    @pytest.fixture
+    def mask(self):
+        return _fibre_mask()
+
+    @pytest.fixture
+    def img_clean_bg(self):
+        return _make_aligned_fibre_image(noise_seed=None, bg_value=0)
+
+    @pytest.fixture
+    def img_noisy_bg(self):
+        return _make_aligned_fibre_image(noise_seed=42)
+
+    def test_unmasked_aggregates_change_with_background(
+            self, img_clean_bg, img_noisy_bg, mask):
+        """Sanity check on the failure mode: unmasked aggregates DO drift."""
+        a1 = OrientationAnalyzer(sigma=2.0)
+        a1.compute_orient(img_clean_bg)
+        a2 = OrientationAnalyzer(sigma=2.0)
+        a2.compute_orient(img_noisy_bg)
+
+        coh1 = float(a1.mean_coherency())            # whole image
+        coh2 = float(a2.mean_coherency())            # whole image
+        var1 = float(a1.circular_variance())
+        var2 = float(a2.circular_variance())
+
+        # The two images differ only in background; if the unsuffixed
+        # aggregates were reliable they would not move. They do move,
+        # which is exactly the bug we are fixing at the call sites.
+        assert abs(coh1 - coh2) > 1e-3
+        assert abs(var1 - var2) > 1e-3
+
+    def test_masked_coherency_invariant_to_background(
+            self, img_clean_bg, img_noisy_bg, mask):
+        a1 = OrientationAnalyzer(sigma=2.0)
+        a1.compute_orient(img_clean_bg)
+        a2 = OrientationAnalyzer(sigma=2.0)
+        a2.compute_orient(img_noisy_bg)
+
+        coh1 = float(a1.mean_coherency(mask=mask))
+        coh2 = float(a2.mean_coherency(mask=mask))
+        # ROI-masked aggregate is computed on the fibre region only, which
+        # is byte-identical between the two inputs.
+        assert coh1 == pytest.approx(coh2, abs=1e-9)
+
+    def test_masked_variance_invariant_to_background(
+            self, img_clean_bg, img_noisy_bg, mask):
+        a1 = OrientationAnalyzer(sigma=2.0)
+        a1.compute_orient(img_clean_bg)
+        a2 = OrientationAnalyzer(sigma=2.0)
+        a2.compute_orient(img_noisy_bg)
+
+        var1 = float(a1.circular_variance(mask=mask))
+        var2 = float(a2.circular_variance(mask=mask))
+        assert var1 == pytest.approx(var2, abs=1e-9)
+
+    def test_masked_orientation_invariant_to_background(
+            self, img_clean_bg, img_noisy_bg, mask):
+        a1 = OrientationAnalyzer(sigma=2.0)
+        a1.compute_orient(img_clean_bg)
+        a2 = OrientationAnalyzer(sigma=2.0)
+        a2.compute_orient(img_noisy_bg)
+
+        ang1 = float(a1.mean_orientation(mask=mask))
+        ang2 = float(a2.mean_orientation(mask=mask))
+        assert ang1 == pytest.approx(ang2, abs=1e-9)
+
+    def test_horizontal_fibre_reports_horizontal_orientation(
+            self, img_clean_bg, mask):
+        a = OrientationAnalyzer(sigma=2.0)
+        a.compute_orient(img_clean_bg)
+        # Mean orientation in degrees: horizontal fibres → ~0°.
+        ang = float(a.mean_orientation(mask=mask))
+        assert abs(ang) < 5.0
+
+    def test_aligned_fibre_high_coherency(self, img_clean_bg, mask):
+        a = OrientationAnalyzer(sigma=2.0)
+        a.compute_orient(img_clean_bg)
+        coh = float(a.mean_coherency(mask=mask))
+        assert coh > 0.5
+
+    def test_color_survey_with_mask_blanks_outside(self, img_noisy_bg, mask):
+        """draw_color_survey(mask=mask_roi) must zero out non-ROI regions."""
+        a = OrientationAnalyzer(sigma=2.0)
+        a.compute_orient(img_noisy_bg)
+        cs = a.draw_color_survey(mask=mask.astype(bool))
+        # Outside-mask pixels must be (0, 0, 0)
+        outside = cs[~mask.astype(bool)]
+        assert outside.max() == 0
+
+
+class TestRealImageMasking:
+    """Real synthetic IHC asset: confirm masked vs unmasked actually differ."""
+
+    def test_real_image_masked_differs_from_unmasked(self):
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "data", "Synthetic", "5001f5e89da92cce.png",
+        )
+        if not os.path.isfile(path):
+            pytest.skip(f"test asset not present: {path}")
+
+        import imageio.v3 as iio
+        img = iio.imread(path)
+        if img.ndim == 2:
+            img = np.stack([img] * 3, axis=-1)
+
+        a = OrientationAnalyzer(sigma=2.0)
+        a.compute_orient(img)
+
+        # Threshold the green channel as a proxy ROI ("fibre" region).
+        gray = img[..., 0] if img.ndim == 3 else img
+        mask = (gray > 127).astype(np.uint8) * 255
+
+        # If the mask is degenerate, the assertion below is vacuous.
+        # Skip rather than make a noisy claim.
+        coverage = float(mask.sum()) / (255 * mask.size)
+        if coverage < 0.05 or coverage > 0.95:
+            pytest.skip(f"mask coverage degenerate: {coverage:.2%}")
+
+        coh_unmasked = float(a.mean_coherency())
+        coh_masked = float(a.mean_coherency(mask=mask))
+        # The masked value should differ from the whole-image one in a
+        # meaningful (non-trivial) way on a real image.
+        assert abs(coh_masked - coh_unmasked) > 1e-4
