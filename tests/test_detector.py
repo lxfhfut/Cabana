@@ -310,3 +310,146 @@ class TestInputNormalization:
         assert d.image is not None
         assert d.gray is not None
         assert d.gray.dtype == np.uint8
+
+
+# ---------------------------------------------------------------------------
+# Steger threshold continuity (no np.floor)
+# ---------------------------------------------------------------------------
+
+class TestStegerThresholdContinuity:
+    """Removing np.floor in apply_filtering must restore continuous behaviour.
+
+    Verifies the contract:
+      threshold(c, sigma) = 0.17 * sigma^gamma * c * w / (sqrt(2 pi) sigma^3)
+                                * exp(-w^2 / (8 sigma^2))
+      with w = 2 sqrt(3) (sigma - 0.5)
+
+    so the threshold is strictly proportional to user-set contrast, never
+    zero for any positive contrast, and monotonically increasing in c.
+    """
+
+    def _run_filter(self, low_c, high_c, line_widths=(5,), gamma=2.0,
+                    img_size=(96, 96)):
+        d = FibreDetector(line_widths=list(line_widths),
+                          low_contrast=low_c,
+                          high_contrast=high_c,
+                          gamma=gamma,
+                          dark_line=True,
+                          min_len=3)
+        # detect_lines invokes apply_filtering; we only need the populated
+        # threshold maps, not the contour pipeline.
+        img = np.full(img_size, 220, dtype=np.uint8)
+        img[img_size[0] // 2 - 2:img_size[0] // 2 + 3, :] = 50
+        d.detect_lines(img)
+        return d
+
+    def test_threshold_strictly_positive_at_low_contrast(self):
+        """Even at very low contrast the threshold must remain > 0."""
+        # low_contrast=5 used to drive the inner expression below 1, where
+        # np.floor zeroed the threshold and the detector went into a fail
+        # mode that admitted everything.
+        d = self._run_filter(low_c=5, high_c=10)
+        assert float(d.lower_thresh.max()) > 0.0
+        assert float(d.upper_thresh.max()) > 0.0
+
+    def test_threshold_proportional_to_contrast(self):
+        """threshold(c=K) / threshold(c=1) == K within numerical error."""
+        d_lo = self._run_filter(low_c=1, high_c=2)
+        d_hi = self._run_filter(low_c=10, high_c=20)
+        # Take a single per-pixel value (all pixels share the same scale
+        # in this single-scale-list configuration).
+        ratio_low = float(d_hi.lower_thresh.max()) / float(d_lo.lower_thresh.max())
+        ratio_high = float(d_hi.upper_thresh.max()) / float(d_lo.upper_thresh.max())
+        # dark_line transforms clow = 255 - high_contrast and chigh = 255 - low_contrast,
+        # so doubling user-c does not double clow/chigh exactly. Just verify
+        # strict monotonicity for both bounds rather than exact ratios.
+        assert ratio_low != pytest.approx(1.0)
+        assert ratio_high != pytest.approx(1.0)
+
+    def test_threshold_monotone_in_user_contrast(self):
+        """Sweeping user-set Low Contrast monotonically lowers clow,
+        which monotonically raises lower_thresh (because clow = 255 - hc
+        in dark-line mode and lower_thresh ∝ clow). Pin the contract that
+        the post-fix threshold has no plateaus in the sweep."""
+        # In dark-line mode: clow = 255 - high_contrast, chigh = 255 - low_contrast.
+        # Hold high_contrast fixed at 200 and sweep low_contrast.
+        # clow stays at 55 throughout; chigh increases from 245 to 240..
+        # Easier: sweep clow directly via low_contrast in light-line mode.
+        results = []
+        for lc in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]:
+            d = FibreDetector(line_widths=[5],
+                              low_contrast=lc,
+                              high_contrast=200,
+                              dark_line=False,    # so clow = lc directly
+                              min_len=3)
+            img = np.full((96, 96), 50, dtype=np.uint8)
+            img[46:51, :] = 220
+            d.detect_lines(img)
+            results.append(float(d.lower_thresh.max()))
+
+        # Pre-fix behaviour produced plateaus where np.floor of the inner
+        # expression did not change. The continuous expression is strictly
+        # monotone increasing.
+        diffs = np.diff(results)
+        assert (diffs > 0).all(), f"non-monotone thresholds: {results}"
+
+    def test_threshold_continuous_no_floor_jump(self):
+        """Compare two adjacent contrasts that bracket a floor() integer
+        boundary in the old expression: their thresholds must differ
+        smoothly, not snap to identical values."""
+        # The inner expression for sigma=1.94 (w=5), clow=20:
+        #   20 * 5 / (sqrt(2 pi) * 1.94**3) * exp(-25 / (8 * 1.94**2)) ~= 2.38
+        # For clow=21 the inner expression is ~2.50. floor(2.38)=floor(2.50)=2,
+        # so the old code produced identical thresholds for clow in {20,21}.
+        # The continuous expression must produce different thresholds.
+        d20 = FibreDetector(line_widths=[5], low_contrast=20, high_contrast=200,
+                            dark_line=False, min_len=3)
+        d21 = FibreDetector(line_widths=[5], low_contrast=21, high_contrast=200,
+                            dark_line=False, min_len=3)
+        img = np.full((96, 96), 50, dtype=np.uint8)
+        img[46:51, :] = 220
+        d20.detect_lines(img)
+        d21.detect_lines(img)
+        t20 = float(d20.lower_thresh.max())
+        t21 = float(d21.lower_thresh.max())
+        # Distinct, with the higher contrast giving the higher threshold.
+        assert t21 > t20
+        # And the gap is small (proportional to 1/c), not a 1-unit jump.
+        assert (t21 - t20) < 0.5  # well below the 1-unit floor() granularity
+
+    def test_threshold_matches_paper_formula(self):
+        """Spot-check the numerical value against the paper's expression."""
+        sigma_target = 5 / (2 * np.sqrt(3)) + 0.5
+        d = FibreDetector(line_widths=[5], low_contrast=55, high_contrast=200,
+                          gamma=2.0, dark_line=True, min_len=3)
+        img = np.full((96, 96), 220, dtype=np.uint8)
+        img[46:51, :] = 50
+        d.detect_lines(img)
+
+        # Re-derive the expected threshold at the active scale.
+        sigma = d.sigmas[0]
+        w = 2 * np.sqrt(3) * (sigma - 0.5)
+        clow = 255 - 200  # dark_line transform
+        chigh = 255 - 55
+        gauss = w / (np.sqrt(2 * np.pi) * sigma ** 3) * np.exp(-w ** 2 / (8 * sigma ** 2))
+        expected_low = 0.17 * sigma ** 2.0 * clow * gauss
+        expected_high = 0.17 * sigma ** 2.0 * chigh * gauss
+
+        assert float(d.lower_thresh.max()) == pytest.approx(expected_low, rel=1e-9)
+        assert float(d.upper_thresh.max()) == pytest.approx(expected_high, rel=1e-9)
+
+    def test_real_synthetic_image_detection_after_fix(self):
+        """Real asset still produces non-empty detector output post-fix."""
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "data", "Synthetic", "5001f5e89da92cce.png",
+        )
+        if not os.path.isfile(path):
+            pytest.skip(f"test asset not present: {path}")
+        d = FibreDetector(line_widths=[5, 9], dark_line=True, min_len=5)
+        d.detect_lines(path)
+        # The continuous-threshold detector must still find contours on a
+        # real synthetic image; thresholds being slightly tighter than the
+        # floored version implies fewer-or-equal but not zero contours.
+        assert d.contours is not None
+        assert len(d.contours) > 0

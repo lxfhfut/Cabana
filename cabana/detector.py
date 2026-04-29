@@ -128,14 +128,22 @@ class FibreDetector:
             rxys[..., scale_idx] = rxy
             rxxs[..., scale_idx] = rxx
 
-            # calculate thresholds for each scale
+            # Continuous Steger ridge-saliency threshold (Steger 1996, Eq. 12,
+            # scaled by 0.17 * sigma^gamma to match this module's normalised
+            # saliency = sigma^gamma * eigval). The historical ImageJ port
+            # used np.floor here because its response array was integer-
+            # quantised; nothing in this Python pipeline is, so flooring
+            # discarded sub-unit precision without producing an
+            # integer-aligned threshold (the outer 0.17*sigma**gamma factor
+            # turned the floored value back into a non-integer). Removing
+            # the floor restores the continuous behaviour described in the
+            # paper and makes detection sensitivity move smoothly with the
+            # user-set Low/High Contrast values instead of in discrete jumps.
             line_width = 2 * np.sqrt(3) * (sigma - 0.5)
-            low_thresh = (0.17 * sigma ** self.gamma *
-                          np.floor(self.clow * line_width / (np.sqrt(2 * np.pi) * sigma ** 3) *
-                                   np.exp(-line_width ** 2 / (8 * sigma ** 2))))
-            high_thresh = (0.17 * sigma ** self.gamma *
-                           np.floor(self.chigh * line_width / (np.sqrt(2 * np.pi) * sigma ** 3) *
-                                    np.exp(-line_width ** 2 / (8 * sigma ** 2))))
+            _gauss = (line_width / (np.sqrt(2 * np.pi) * sigma ** 3) *
+                      np.exp(-line_width ** 2 / (8 * sigma ** 2)))
+            low_thresh = 0.17 * sigma ** self.gamma * self.clow * _gauss
+            high_thresh = 0.17 * sigma ** self.gamma * self.chigh * _gauss
             low_threshs[..., scale_idx] = low_thresh
             high_threshs[..., scale_idx] = high_thresh
             sigma_maps[..., scale_idx] = sigma
