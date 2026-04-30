@@ -445,61 +445,28 @@ class BatchCabana:
             self._tick()
 
     def calc_fibre_areas(self):
-        img_paths = glob(join_path(self.bin_dir, '*.png'))
-        img_paths.sort()
+        from .stages import compute_fibre_areas, FIBRE_AREA_METRICS
+        img_paths = sorted(glob(join_path(self.bin_dir, '*.png')))
         with open(join_path(self.bin_dir, 'ResultsROI.csv'), 'w', encoding='UTF8') as f:
             writer = csv.writer(f)
-            writer.writerow(
-                ['Image', 'Area (ROI)', '% ROI Area', 'Area (WIDTH)', '% WIDTH Area',
-                 'Mean Fibre Intensity (ROI)',
-                 'Mean Fibre Intensity (WIDTH)',
-                 'Mean Fibre Intensity (HDM)'])
+            writer.writerow(['Image', *FIBRE_AREA_METRICS])
             Log.logger.info('Calculating fibre areas for {} images.'.format(len(img_paths)))
             for img_path in img_paths:
-                img_mask = cv2.imread(img_path, 0)
-                area_roi = np.sum(img_mask > 128).astype(float)  # ROI area
-                if area_roi == 0:
-                    writer.writerow([0] * 8)
-                    self._tick()
-                    continue
-                percent_roi = area_roi / img_mask.shape[0] / img_mask.shape[1]  # % ROI area
-                name = os.path.basename(img_path)
-                ori_img = iio.imread(join_path(self.eligible_dir, name[:-9] + ".png"))
-
-                hed = rgb2hed(ori_img)
-                null = np.zeros_like(hed[:, :, 0])
-                ihc_e = hed2rgb(np.stack((null, hed[:, :, 1], null), axis=-1))
-                red_img = (rgb2gray(ihc_e) * 255).astype(np.uint8)
-
-                name = name[:-9] + '_roi.png'
-                name_wo_ext = name[:-4]
-                width_mask = cv2.imread(join_path(self.export_dir, name_wo_ext, name_wo_ext+"_Width.png"), 0)
-                hdm_mask = cv2.imread(join_path(self.hdm_dir, name), 0)
-                area_width = np.sum(width_mask < 128).astype(float)  # WIDTH area
-                percent_width = area_width / np.prod(width_mask.shape[:2])  # % WIDTH area
-                grayscale = (rgb2gray(ori_img)*255).astype(np.uint8)
-                if np.count_nonzero(red_img < 180):
-                    mean_intensity_roi = np.mean(red_img[(img_mask > 128) & (red_img < 180)])
-                    mean_intensity_width = np.mean(red_img[(width_mask < 128) & (red_img < 180)])
-                    mean_intensity_hdm = np.mean(red_img[(hdm_mask > 0) & (red_img < 180)])
+                base = os.path.basename(img_path)
+                stem = base[:-9]                  # strip '_mask.png'
+                roi_name = stem + '_roi.png'
+                roi_stem = roi_name[:-4]
+                metrics = compute_fibre_areas(
+                    img_mask_path=img_path,
+                    ori_img_path=join_path(self.eligible_dir, stem + ".png"),
+                    width_mask_path=join_path(self.export_dir, roi_stem, roi_stem + "_Width.png"),
+                    hdm_mask_path=join_path(self.hdm_dir, roi_name),
+                )
+                if metrics['Area (ROI)'] == 0:
+                    writer.writerow([0] * (1 + len(FIBRE_AREA_METRICS)))
                 else:
-                    mean_intensity_roi = np.mean(grayscale[img_mask > 128])
-                    mean_intensity_width = np.mean(grayscale[width_mask < 128])
-                    mean_intensity_hdm = np.mean(grayscale[hdm_mask > 0])
-
-                # Fall back to grayscale intensity if HED-based calculation produced NaN
-                if np.isnan(mean_intensity_roi):
-                    mean_intensity_roi = np.mean(grayscale[img_mask > 128]) if np.any(img_mask > 128) else 0
-                if np.isnan(mean_intensity_width):
-                    mean_intensity_width = np.mean(grayscale[width_mask < 128]) if np.any(width_mask < 128) else 0
-                if np.isnan(mean_intensity_hdm):
-                    mean_intensity_hdm = np.mean(grayscale[hdm_mask > 0]) if np.any(hdm_mask > 0) else 0
-
-                data = [name, area_roi, percent_roi, area_width, percent_width,
-                        mean_intensity_roi, mean_intensity_width, mean_intensity_hdm]
-                writer.writerow(data)
+                    writer.writerow([roi_name, *(metrics[k] for k in FIBRE_AREA_METRICS)])
                 self._tick()
-
             Log.logger.info('Areas have been saved in {}'.format(join_path(self.bin_dir, 'ResultsROI.csv')))
 
     def analyze_all_gaps(self):

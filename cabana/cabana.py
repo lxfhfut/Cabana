@@ -555,58 +555,15 @@ class Cabana:
 
     def calc_fibre_areas(self):
         """Calculate fibre areas and related metrics"""
-        img_mask = cv2.imread(join_path(self.bin_dir, self.name_wo_ext + '_mask.png'), 0)
-        area_roi = np.sum(img_mask > 128).astype(float)  # ROI area
-
-        if area_roi == 0:
-            # Fill with zeros if no fibres found
-            fibre_metrics = ['Area (ROI)', '% ROI Area', 'Area (WIDTH)', '% WIDTH Area',
-                             'Mean Fibre Intensity (ROI)', 'Mean Fibre Intensity (WIDTH)',
-                             'Mean Fibre Intensity (HDM)']
-            for metric in fibre_metrics:
-                self.stats.loc[0, metric] = 0
-            return
-
-        percent_roi = area_roi / img_mask.shape[0] / img_mask.shape[1]  # % ROI area
-        ori_img = iio.imread(join_path(self.eligible_dir, self.name_wo_ext + ".png"))
-
-        # Calculate mean intensities
-        hed = rgb2hed(ori_img)
-        null = np.zeros_like(hed[:, :, 0])
-        ihc_e = hed2rgb(np.stack((null, hed[:, :, 1], null), axis=-1))
-        red_img = (rgb2gray(ihc_e) * 255).astype(np.uint8)
-
-        width_mask = cv2.imread(join_path(self.export_img_dir, self.name_wo_ext + "_Width.png"), 0)
-        hdm_mask = cv2.imread(join_path(self.hdm_dir, self.name_wo_ext + '_roi.png'), 0)
-        area_width = np.sum(width_mask < 128).astype(float)  # WIDTH area
-        percent_width = area_width / np.product(width_mask.shape[:2])  # % WIDTH area
-
-        grayscale = (rgb2gray(ori_img) * 255).astype(np.uint8)
-        if np.count_nonzero(red_img < 180):
-            mean_intensity_roi = np.mean(red_img[(img_mask > 128) & (red_img < 180)])
-            mean_intensity_width = np.mean(red_img[(width_mask < 128) & (red_img < 180)])
-            mean_intensity_hdm = np.mean(red_img[(hdm_mask > 0) & (red_img < 180)])
-        else:
-            mean_intensity_roi = np.mean(grayscale[img_mask > 128])
-            mean_intensity_width = np.mean(grayscale[width_mask < 128])
-            mean_intensity_hdm = np.mean(grayscale[hdm_mask > 0])
-
-        # Fall back to grayscale intensity if HED-based calculation produced NaN
-        if np.isnan(mean_intensity_roi):
-            mean_intensity_roi = np.mean(grayscale[img_mask > 128]) if np.any(img_mask > 128) else 0
-        if np.isnan(mean_intensity_width):
-            mean_intensity_width = np.mean(grayscale[width_mask < 128]) if np.any(width_mask < 128) else 0
-        if np.isnan(mean_intensity_hdm):
-            mean_intensity_hdm = np.mean(grayscale[hdm_mask > 0]) if np.any(hdm_mask > 0) else 0
-
-        # Store metrics
-        self.stats.loc[0, 'Area (ROI)'] = area_roi
-        self.stats.loc[0, '% ROI Area'] = percent_roi
-        self.stats.loc[0, 'Area (WIDTH)'] = area_width
-        self.stats.loc[0, '% WIDTH Area'] = percent_width
-        self.stats.loc[0, 'Mean Fibre Intensity (ROI)'] = mean_intensity_roi
-        self.stats.loc[0, 'Mean Fibre Intensity (WIDTH)'] = mean_intensity_width
-        self.stats.loc[0, 'Mean Fibre Intensity (HDM)'] = mean_intensity_hdm
+        from .stages import compute_fibre_areas
+        metrics = compute_fibre_areas(
+            img_mask_path=join_path(self.bin_dir, self.name_wo_ext + '_mask.png'),
+            ori_img_path=join_path(self.eligible_dir, self.name_wo_ext + ".png"),
+            width_mask_path=join_path(self.export_img_dir, self.name_wo_ext + "_Width.png"),
+            hdm_mask_path=join_path(self.hdm_dir, self.name_wo_ext + '_roi.png'),
+        )
+        for k, v in metrics.items():
+            self.stats.loc[0, k] = v
 
     def visualize_fibres(self, thickness=3):
         """Generate visualizations of detected fibres"""
