@@ -15,6 +15,7 @@ from skimage.color import rgb2hed, hed2rgb, rgb2gray
 
 from .hdm import HDM
 from .detector import FibreDetector
+from .analyzer import SkeletonAnalyzer
 from .utils import join_path
 
 
@@ -179,3 +180,73 @@ def detect_one_image(det, roi_img_path, mask_dir, export_subdir, color_subdir,
         'binary_widths': binary_widths,
         'int_width_img': int_width_img,
     }
+
+
+def build_skeleton_analyzer(args):
+    """Construct a SkeletonAnalyzer from a parsed parameters dict.
+
+    Note: dark_line=True because fibre detection writes black-on-white masks.
+    """
+    min_branch_len = int(args["Quantification"]["Minimum Branch Length"])
+    return SkeletonAnalyzer(
+        skel_thresh=min_branch_len,
+        branch_thresh=min_branch_len,
+        hole_threshold=8,
+        dark_line=True,
+    )
+
+
+def curve_windows_from_args(args):
+    q = args["Quantification"]
+    return np.arange(
+        int(q["Minimum Curvature Window"]),
+        int(q["Maximum Curvature Window"]) + int(q["Curvature Window Step"]),
+        int(q["Curvature Window Step"]),
+    )
+
+
+def quantify_one_skeleton(skel_analyzer, mask_path, export_subdir, artifact_stem,
+                          ims_res, curve_windows):
+    """Analyze one fibre-mask image; return metrics + curve maps + key images.
+
+    The caller is responsible for resetting the analyzer between calls when
+    reusing an instance.
+
+    Returns
+    -------
+    metrics : dict
+        Per-image scalar metrics (matches the columns Cabana / BatchCabana
+        write into their stats frames).
+    curve_maps : dict
+        Mapping from window size to curvature map array.
+    key_pts_image : ndarray
+    length_map : ndarray
+    """
+    skel_analyzer.analyze_image(mask_path)
+
+    metrics = {
+        'Area of Fibre Spines (µm²)': skel_analyzer.proj_area * ims_res ** 2,
+        'Lacunarity': skel_analyzer.lacunarity,
+        'Total Length (µm)': skel_analyzer.total_length * ims_res,
+        'Endpoints': skel_analyzer.num_tips,
+        'Avg Length (µm)': skel_analyzer.growth_unit * ims_res,
+        'Branchpoints': skel_analyzer.num_branches,
+        'Box-Counting Fractal Dimension': skel_analyzer.frac_dim,
+        'Total Image Area (µm²)': np.prod(skel_analyzer.raw_image.shape[:2]) * ims_res ** 2,
+    }
+
+    Path(export_subdir).mkdir(parents=True, exist_ok=True)
+    iio.imwrite(join_path(export_subdir, f"{artifact_stem}_Skeleton.png"),
+                skel_analyzer.key_pts_image)
+    iio.imwrite(join_path(export_subdir, f"{artifact_stem}_Length_Map.tif"),
+                skel_analyzer.length_map_all)
+
+    curve_maps = {}
+    for win_sz in curve_windows:
+        skel_analyzer.calc_curve_all(win_sz)
+        metrics[f"Curvature (win_sz={win_sz})"] = skel_analyzer.avg_curve_all
+        curve_maps[int(win_sz)] = skel_analyzer.curve_map_all
+        iio.imwrite(join_path(export_subdir, f"{artifact_stem}_Curve_Map_{win_sz}.tif"),
+                    skel_analyzer.curve_map_all)
+
+    return metrics, curve_maps, skel_analyzer.key_pts_image, skel_analyzer.length_map_all

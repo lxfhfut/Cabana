@@ -275,57 +275,25 @@ class Cabana:
 
     def quantify_skeleton(self):
         """Quantify skeleton metrics"""
-        min_skel_size = int(self.args["Quantification"]["Minimum Branch Length"])
-        min_branch_len = int(self.args["Quantification"]["Minimum Branch Length"])
-        min_hole_area = 8
-        min_curve_win = int(self.args["Quantification"]["Minimum Curvature Window"])
-        max_curve_win = int(self.args["Quantification"]["Maximum Curvature Window"])
-        curve_win_step = int(self.args["Quantification"]["Curvature Window Step"])
+        from .stages import (build_skeleton_analyzer, curve_windows_from_args,
+                             quantify_one_skeleton)
+        skel_analyzer = build_skeleton_analyzer(self.args)
+        print(f"Min branch length = {skel_analyzer.branch_thresh} px, "
+              f"Min hole area = {skel_analyzer.hole_thresh} px²")
 
-        print(f"Min skeleton size = {min_skel_size} px, "
-              f"Min branch length = {min_branch_len} px, "
-              f"Min hole area = {min_hole_area} px²")
-
-        # Fibre detection returns fibres in black color,
-        # so dark_line is set to "True" for skeleton analysis
-        skel_analyzer = SkeletonAnalyzer(skel_thresh=min_skel_size,
-                                         branch_thresh=min_branch_len,
-                                         hole_threshold=min_hole_area,
-                                         dark_line=True)
-
-        img_path = join_path(self.mask_dir, self.name_wo_ext + '_roi.png')
-        skel_analyzer.analyze_image(img_path)
-
-        # Store metrics in stats dataframe
-        self.stats.loc[0, 'Area of Fibre Spines (µm²)'] = skel_analyzer.proj_area * self.ims_res ** 2
-        self.stats.loc[0, 'Lacunarity'] = skel_analyzer.lacunarity
-        self.stats.loc[0, 'Total Length (µm)'] = skel_analyzer.total_length * self.ims_res
-        self.stats.loc[0, 'Endpoints'] = skel_analyzer.num_tips
-        self.stats.loc[0, 'Avg Length (µm)'] = skel_analyzer.growth_unit * self.ims_res
-        self.stats.loc[0, 'Branchpoints'] = skel_analyzer.num_branches
-        self.stats.loc[0, 'Box-Counting Fractal Dimension'] = skel_analyzer.frac_dim
-        self.stats.loc[0, 'Total Image Area (µm²)'] = np.prod(skel_analyzer.raw_image.shape[:2]) * self.ims_res ** 2
-
-        # Store skeleton image
-        self.skeleton_img = skel_analyzer.key_pts_image
-        self.length_map = skel_analyzer.length_map_all
-
-        # Save images
-        iio.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_Skeleton.png"),
-                    self.skeleton_img)
-        iio.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_Length_Map.tif"),
-                    self.length_map)
-
-        # Calculate curvatures for various window sizes
-        for win_sz in np.arange(min_curve_win, max_curve_win + curve_win_step, curve_win_step):
-            skel_analyzer.calc_curve_all(win_sz)
-            curve_key = f"Curvature (win_sz={win_sz})"
-            self.stats.loc[0, curve_key] = skel_analyzer.avg_curve_all
-            self.curve_maps[win_sz] = skel_analyzer.curve_map_all
-
-            # Save curve map
-            iio.imwrite(join_path(self.export_img_dir, f"{self.name_wo_ext}_Curve_Map_{win_sz}.tif"),
-                        skel_analyzer.curve_map_all)
+        metrics, curve_maps, key_pts_image, length_map = quantify_one_skeleton(
+            skel_analyzer,
+            mask_path=join_path(self.mask_dir, self.name_wo_ext + '_roi.png'),
+            export_subdir=self.export_img_dir,
+            artifact_stem=self.name_wo_ext,
+            ims_res=self.ims_res,
+            curve_windows=curve_windows_from_args(self.args),
+        )
+        for k, v in metrics.items():
+            self.stats.loc[0, k] = v
+        self.skeleton_img = key_pts_image
+        self.length_map = length_map
+        self.curve_maps = curve_maps
 
     def quantify_hdm(self):
         """Quantify high density matrix areas"""

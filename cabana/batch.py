@@ -306,77 +306,31 @@ class BatchCabana:
         self.df_stats = self.df_stats.merge(df_orient, on="Image")
 
     def quantify_skeletons(self):
-        min_skel_size = int(self.args["Quantification"]["Minimum Branch Length"])  # hardcode to min branch len
-        min_branch_len = int(self.args["Quantification"]["Minimum Branch Length"])
-        min_hole_area = 8  # int(self.args["Quantification"]["Minimum Hole Area"])
-        min_curve_win = int(self.args["Quantification"]["Minimum Curvature Window"])
-        max_curve_win = int(self.args["Quantification"]["Maximum Curvature Window"])
-        curve_win_step = int(self.args["Quantification"]["Curvature Window Step"])
+        from .stages import (build_skeleton_analyzer, curve_windows_from_args,
+                             quantify_one_skeleton)
+        skel_analyzer = build_skeleton_analyzer(self.args)
+        curve_windows = curve_windows_from_args(self.args)
+        Log.logger.info(f"Min branch length = {skel_analyzer.branch_thresh} px, "
+                        f"Min hole area = {skel_analyzer.hole_thresh} px²")
 
-        Log.logger.info(f"Min skeleton size = {min_skel_size} px, "
-                        f"Min branch length = {min_branch_len} px, "
-                        f"Min hole area = {min_hole_area} px²")
-
-        # fibre detection returns fibres in black color,
-        # so dark_line is set to "True" for skeleton analysis
-        skel_analyzer = SkeletonAnalyzer(skel_thresh=min_skel_size,
-                                         branch_thresh=min_branch_len,
-                                         hole_threshold=min_hole_area,
-                                         dark_line=True)
-        img_names, end_points, branch_points, growth_units = [], [], [], []
-        proj_areas, lacunarities, total_lengths, frac_dims, total_areas = [], [], [], [], []
-        curvatures = {}
-        for win_sz in np.arange(min_curve_win, max_curve_win + curve_win_step, curve_win_step):
-            curvatures[f"Curvature (win_sz={win_sz})"] = []
         img_paths = glob(join_path(self.mask_dir, '*.png'))
-        total_images = len(img_paths)
-        Log.logger.info(f"Quantifying skeletons for {total_images} images.")
+        Log.logger.info(f"Quantifying skeletons for {len(img_paths)} images.")
+        rows = []
         for img_path in tqdm(img_paths, bar_format=read_bar_format):
             skel_analyzer.reset()
-            skel_analyzer.analyze_image(img_path)
             ori_img_name = os.path.basename(img_path)
-            img_names.append(ori_img_name)
-            end_points.append(skel_analyzer.num_tips)
-            branch_points.append(skel_analyzer.num_branches)
-            growth_units.append(skel_analyzer.growth_unit * self.ims_res)
-            proj_areas.append(skel_analyzer.proj_area * self.ims_res**2)
-            lacunarities.append(skel_analyzer.lacunarity)
-            total_lengths.append(skel_analyzer.total_length * self.ims_res)
-            frac_dims.append(skel_analyzer.frac_dim)
-            total_areas.append(np.prod(skel_analyzer.raw_image.shape[:2]) * self.ims_res**2)
-
-            # export images to 'Export' folder
-            name_wo_ext = ori_img_name[:ori_img_name.rindex('.')]
-            iio.imwrite(
-                join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Skeleton.png"),
-                skel_analyzer.key_pts_image)
-
-            iio.imwrite(
-                join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Length_Map.tif"),
-                skel_analyzer.length_map_all)
-
-            # calculate curvatures for various window sizes
-            for win_sz in np.arange(min_curve_win, max_curve_win + curve_win_step, curve_win_step):
-                skel_analyzer.calc_curve_all(win_sz)
-                curvatures[f"Curvature (win_sz={win_sz})"].append(skel_analyzer.avg_curve_all)
-                iio.imwrite(join_path(
-                    self.export_dir, name_wo_ext, f"{name_wo_ext}_Curve_Map_{win_sz}.tif"),
-                    skel_analyzer.curve_map_all)
-
+            stem = os.path.splitext(ori_img_name)[0]
+            metrics, _, _, _ = quantify_one_skeleton(
+                skel_analyzer, mask_path=img_path,
+                export_subdir=join_path(self.export_dir, stem),
+                artifact_stem=stem,
+                ims_res=self.ims_res,
+                curve_windows=curve_windows,
+            )
+            rows.append({'Image': ori_img_name, **metrics})
             self._tick()
 
-        data = {'Image': img_names,
-                'Area of Fibre Spines (µm²)': proj_areas,
-                'Lacunarity': lacunarities,
-                'Total Length (µm)': total_lengths,
-                'Endpoints': end_points,
-                'Avg Length (µm)': growth_units,
-                'Branchpoints': branch_points,
-                'Box-Counting Fractal Dimension': frac_dims,
-                'Total Image Area (µm²)': total_areas
-                }
-        data.update(curvatures)
-        df_skel = pd.DataFrame(data)
+        df_skel = pd.DataFrame(rows)
         self.df_stats = self.df_stats.merge(df_skel, on="Image")
 
     def quantify_hdm(self):
