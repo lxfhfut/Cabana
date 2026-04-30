@@ -206,72 +206,26 @@ class Cabana:
 
     def analyze_orientation(self):
         """Analyze orientation of fibres"""
-        orient_analyzer = OrientationAnalyzer(2.0)
-        img_path = join_path(self.roi_dir, self.name_wo_ext + '_roi.png')
-        mask_roi = iio.imread(join_path(self.bin_dir, self.name_wo_ext + "_mask.png"))
-
-        if np.sum(mask_roi) == 0:
-            # Create empty placeholder images and store zero values for metrics
-            empty_img = np.zeros_like(mask_roi)
-
-            self.stats.loc[0, 'Orient. Alignment'] = 0
-            self.stats.loc[0, 'Orient. Variance'] = 0
-            self.stats.loc[0, 'Orient. Alignment (ROI)'] = 0
-            self.stats.loc[0, 'Orient. Variance (ROI)'] = 0
-            self.stats.loc[0, 'Orient. Alignment (HDM)'] = 0
-            self.stats.loc[0, 'Orient. Variance (HDM)'] = 0
-            self.stats.loc[0, 'Orient. Alignment (WIDTH)'] = 0
-            self.stats.loc[0, 'Orient. Variance (WIDTH)'] = 0
-
-            iio.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_Energy.tif"), empty_img)
-            iio.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_Coherency.tif"), empty_img)
-            iio.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_Orientation.tif"), empty_img)
-            iio.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_Color_Survey.tif"), empty_img)
-            iio.imwrite(join_path(self.color_img_dir, self.name_wo_ext + "_orient_vf.png"), empty_img)
-            iio.imwrite(join_path(self.color_img_dir, self.name_wo_ext + "_angular_hist.png"), empty_img)
-            return
-
-        mask_hdm = (iio.imread(join_path(self.hdm_dir, self.name_wo_ext + "_roi.png")) > 0).astype(np.uint8) * 255
-        mask_width = 255 - iio.imread(join_path(self.export_img_dir, self.name_wo_ext + "_Width.png"))
-
-        orient_analyzer.compute_orient(img_path)
-
-        # Store metrics in stats dataframe.
-        # The unsuffixed columns are the primary scientific readouts and must be
-        # restricted to the fibre region: structure-tensor values outside the
-        # ROI are dominated by background noise and contaminate any cross-image
-        # comparison. The (ROI) suffixed columns retain their explicit name for
-        # backward compatibility and now alias the unsuffixed values.
-        self.stats.loc[0, 'Orient. Alignment'] = orient_analyzer.mean_coherency(mask=mask_roi)
-        self.stats.loc[0, 'Orient. Variance'] = orient_analyzer.circular_variance(mask=mask_roi)
-        self.stats.loc[0, 'Orient. Alignment (ROI)'] = orient_analyzer.mean_coherency(mask=mask_roi)
-        self.stats.loc[0, 'Orient. Variance (ROI)'] = orient_analyzer.circular_variance(mask=mask_roi)
-        self.stats.loc[0, 'Orient. Alignment (HDM)'] = orient_analyzer.mean_coherency(mask=mask_hdm)
-        self.stats.loc[0, 'Orient. Variance (HDM)'] = orient_analyzer.circular_variance(mask=mask_hdm)
-        self.stats.loc[0, 'Orient. Alignment (WIDTH)'] = orient_analyzer.mean_coherency(mask=mask_width)
-        self.stats.loc[0, 'Orient. Variance (WIDTH)'] = orient_analyzer.circular_variance(mask=mask_width)
-
-        # Store images
-        self.energy_img = orient_analyzer.get_energy_image()
-        self.coherency_img = orient_analyzer.get_coherency_image()
-        self.orientation_img = orient_analyzer.get_orientation_image()
-        self.orient_color_survey = orient_analyzer.draw_color_survey(mask=mask_roi)
-        self.orient_vector_field = orient_analyzer.draw_vector_field(mask_roi / 255.0)
-        self.angular_hist = orient_analyzer.draw_angular_hist(mask=mask_roi)
-
-        # Save images
-        iio.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_Energy.tif"),
-                    self.energy_img)
-        iio.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_Coherency.tif"),
-                    self.coherency_img)
-        iio.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_Orientation.tif"),
-                    self.orientation_img)
-        iio.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_Color_Survey.tif"),
-                    self.orient_color_survey)
-        iio.imwrite(join_path(self.color_img_dir, self.name_wo_ext + "_orient_vf.png"),
-                    self.orient_vector_field)
-        iio.imwrite(join_path(self.color_img_dir, self.name_wo_ext + "_angular_hist.png"),
-                    self.angular_hist)
+        from .stages import analyze_one_orientation
+        metrics, images = analyze_one_orientation(
+            OrientationAnalyzer(2.0),
+            roi_img_path=join_path(self.roi_dir, self.name_wo_ext + '_roi.png'),
+            mask_roi_path=join_path(self.bin_dir, self.name_wo_ext + "_mask.png"),
+            mask_hdm_path=join_path(self.hdm_dir, self.name_wo_ext + "_roi.png"),
+            mask_width_path=join_path(self.export_img_dir, self.name_wo_ext + "_Width.png"),
+            export_subdir=self.export_img_dir,
+            color_subdir=self.color_img_dir,
+            artifact_stem=self.name_wo_ext,
+        )
+        for k, v in metrics.items():
+            self.stats.loc[0, k] = v
+        if images:
+            self.energy_img = images['energy']
+            self.coherency_img = images['coherency']
+            self.orientation_img = images['orientation']
+            self.orient_color_survey = images['color_survey']
+            self.orient_vector_field = images['vector_field']
+            self.angular_hist = images['angular_hist']
 
     def quantify_skeleton(self):
         """Quantify skeleton metrics"""

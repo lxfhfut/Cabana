@@ -16,7 +16,16 @@ from skimage.color import rgb2hed, hed2rgb, rgb2gray
 from .hdm import HDM
 from .detector import FibreDetector
 from .analyzer import SkeletonAnalyzer
+from .orientation import OrientationAnalyzer
 from .utils import join_path
+
+
+ORIENT_METRICS = (
+    'Orient. Alignment', 'Orient. Variance',
+    'Orient. Alignment (ROI)', 'Orient. Variance (ROI)',
+    'Orient. Alignment (HDM)', 'Orient. Variance (HDM)',
+    'Orient. Alignment (WIDTH)', 'Orient. Variance (WIDTH)',
+)
 
 
 FIBRE_AREA_METRICS = (
@@ -250,3 +259,61 @@ def quantify_one_skeleton(skel_analyzer, mask_path, export_subdir, artifact_stem
                     skel_analyzer.curve_map_all)
 
     return metrics, curve_maps, skel_analyzer.key_pts_image, skel_analyzer.length_map_all
+
+
+def analyze_one_orientation(orient_analyzer, roi_img_path, mask_roi_path,
+                            mask_hdm_path, mask_width_path,
+                            export_subdir, color_subdir, artifact_stem):
+    """Compute orientation metrics + write artifacts for one ROI image.
+
+    Returns ``(metrics_dict, images_dict)``. When the ROI mask is empty,
+    metrics are all zero and images_dict is empty (placeholder zero-images
+    are still written so downstream globs find them).
+    """
+    Path(export_subdir).mkdir(parents=True, exist_ok=True)
+    Path(color_subdir).mkdir(parents=True, exist_ok=True)
+    mask_roi = iio.imread(mask_roi_path)
+
+    if np.sum(mask_roi) == 0:
+        empty = np.zeros_like(mask_roi)
+        for name in ("Energy", "Coherency", "Orientation", "Color_Survey"):
+            iio.imwrite(join_path(export_subdir, f"{artifact_stem}_{name}.tif"), empty)
+        for name in ("orient_vf", "angular_hist"):
+            iio.imwrite(join_path(color_subdir, f"{artifact_stem}_{name}.png"), empty)
+        return dict.fromkeys(ORIENT_METRICS, 0), {}
+
+    mask_hdm = (iio.imread(mask_hdm_path) > 0).astype(np.uint8) * 255
+    mask_width = 255 - iio.imread(mask_width_path)
+
+    orient_analyzer.compute_orient(roi_img_path)
+
+    coh_roi = orient_analyzer.mean_coherency(mask=mask_roi)
+    var_roi = orient_analyzer.circular_variance(mask=mask_roi)
+    metrics = {
+        'Orient. Alignment': coh_roi,
+        'Orient. Variance': var_roi,
+        'Orient. Alignment (ROI)': coh_roi,
+        'Orient. Variance (ROI)': var_roi,
+        'Orient. Alignment (HDM)': orient_analyzer.mean_coherency(mask=mask_hdm),
+        'Orient. Variance (HDM)': orient_analyzer.circular_variance(mask=mask_hdm),
+        'Orient. Alignment (WIDTH)': orient_analyzer.mean_coherency(mask=mask_width),
+        'Orient. Variance (WIDTH)': orient_analyzer.circular_variance(mask=mask_width),
+    }
+
+    images = {
+        'energy': orient_analyzer.get_energy_image(),
+        'coherency': orient_analyzer.get_coherency_image(),
+        'orientation': orient_analyzer.get_orientation_image(),
+        'color_survey': orient_analyzer.draw_color_survey(mask=mask_roi),
+        'vector_field': orient_analyzer.draw_vector_field(mask_roi / 255.0),
+        'angular_hist': orient_analyzer.draw_angular_hist(mask=mask_roi),
+    }
+
+    iio.imwrite(join_path(export_subdir, f"{artifact_stem}_Energy.tif"), images['energy'])
+    iio.imwrite(join_path(export_subdir, f"{artifact_stem}_Coherency.tif"), images['coherency'])
+    iio.imwrite(join_path(export_subdir, f"{artifact_stem}_Orientation.tif"), images['orientation'])
+    iio.imwrite(join_path(export_subdir, f"{artifact_stem}_Color_Survey.tif"), images['color_survey'])
+    iio.imwrite(join_path(color_subdir, f"{artifact_stem}_orient_vf.png"), images['vector_field'])
+    iio.imwrite(join_path(color_subdir, f"{artifact_stem}_angular_hist.png"), images['angular_hist'])
+
+    return metrics, images

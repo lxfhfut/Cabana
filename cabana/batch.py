@@ -225,84 +225,29 @@ class BatchCabana:
             self._tick()
 
     def analyze_orientations(self):
+        from .stages import analyze_one_orientation
         orient_analyzer = OrientationAnalyzer(2.0)
-        # Initialize all lists in a more compact way
-        alignments, variances = [], []
-        alignments_roi, variances_roi = [], []
-        alignments_hdm, variances_hdm = [], []
-        alignments_width, variances_width = [], []
-        img_names = []
         img_paths = glob(join_path(self.roi_dir, '*.png'))
-        total_images = len(img_paths)
-        Log.logger.info(f"Analyzing orientations for {total_images} images.")
+        Log.logger.info(f"Analyzing orientations for {len(img_paths)} images.")
+        rows = []
         for img_path in tqdm(img_paths, bar_format=read_bar_format):
             ori_img_name = os.path.basename(img_path)
-            img_names.append(ori_img_name)
-            name_wo_ext = ori_img_name[:ori_img_name.rindex('.')]
-            mask_roi = iio.imread(join_path(self.bin_dir, name_wo_ext[:-4]+"_mask.png"))
-            if np.sum(mask_roi) == 0:
-                for lst in [alignments, variances, alignments_roi, variances_roi,
-                            alignments_hdm, variances_hdm, alignments_width, variances_width]:
-                    lst.append(0)
-                iio.imwrite(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Energy.tif"), mask_roi)
-                iio.imwrite(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Coherency.tif"), mask_roi)
-                iio.imwrite(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Orientation.tif"), mask_roi)
-                iio.imwrite(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Color_Survey.tif"), mask_roi)
-                iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_orient_vf.png"), mask_roi)
-                iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_angular_hist.png"), mask_roi)
-                self._tick()
-                continue
-
-            mask_hdm = (iio.imread(join_path(self.hdm_dir, name_wo_ext[:-4]+"_roi.png")) > 0).astype(np.uint8)*255
-            mask_width = 255 - iio.imread(join_path(self.export_dir, name_wo_ext[:-4]+"_roi", name_wo_ext[:-4]+"_roi_Width.png"))
-            orient_analyzer.compute_orient(img_path)
-            # Default (unsuffixed) aggregates are restricted to the fibre ROI so
-            # they describe fibre alignment rather than background structure.
-            # See cabana.Cabana.analyze_orientation for the rationale.
-            alignments.append(orient_analyzer.mean_coherency(mask=mask_roi))
-            variances.append(orient_analyzer.circular_variance(mask=mask_roi))
-            alignments_roi.append(orient_analyzer.mean_coherency(mask=mask_roi))
-            variances_roi.append(orient_analyzer.circular_variance(mask=mask_roi))
-            alignments_hdm.append(orient_analyzer.mean_coherency(mask=mask_hdm))
-            variances_hdm.append(orient_analyzer.circular_variance(mask=mask_hdm))
-            alignments_width.append(orient_analyzer.mean_coherency(mask=mask_width))
-            variances_width.append(orient_analyzer.circular_variance(mask=mask_width))
-
-            # export visualizations to 'Export' folder
-            iio.imwrite(join_path(
-                self.export_dir, name_wo_ext, name_wo_ext + "_Energy.tif"),
-                orient_analyzer.get_energy_image())
-            iio.imwrite(join_path(
-                self.export_dir, name_wo_ext, name_wo_ext + "_Coherency.tif"),
-                orient_analyzer.get_coherency_image())
-            iio.imwrite(join_path(
-                self.export_dir, name_wo_ext, name_wo_ext + "_Orientation.tif"),
-                orient_analyzer.get_orientation_image())
-            iio.imwrite(join_path(
-                self.export_dir, name_wo_ext, name_wo_ext + "_Color_Survey.tif"),
-                orient_analyzer.draw_color_survey(mask=mask_roi))
-
-            # export vector fields and angular hists to 'Color' folder
-            iio.imwrite(join_path(
-                self.color_dir, name_wo_ext, name_wo_ext + "_orient_vf.png"),
-                orient_analyzer.draw_vector_field(mask_roi/255.0))
-            iio.imwrite(join_path(
-                self.color_dir, name_wo_ext, name_wo_ext + "_angular_hist.png"),
-                orient_analyzer.draw_angular_hist(mask=mask_roi))
-
+            name_wo_ext = os.path.splitext(ori_img_name)[0]   # e.g. 'foo_roi'
+            stem = name_wo_ext[:-4]                            # strip '_roi' -> 'foo'
+            metrics, _ = analyze_one_orientation(
+                orient_analyzer,
+                roi_img_path=img_path,
+                mask_roi_path=join_path(self.bin_dir, stem + "_mask.png"),
+                mask_hdm_path=join_path(self.hdm_dir, stem + "_roi.png"),
+                mask_width_path=join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Width.png"),
+                export_subdir=join_path(self.export_dir, name_wo_ext),
+                color_subdir=join_path(self.color_dir, name_wo_ext),
+                artifact_stem=name_wo_ext,
+            )
+            rows.append({'Image': ori_img_name, **metrics})
             self._tick()
 
-        data = {'Image': img_names,
-                'Orient. Alignment': alignments,
-                'Orient. Variance': variances,
-                'Orient. Alignment (ROI)': alignments_roi,
-                'Orient. Variance (ROI)': variances_roi,
-                'Orient. Alignment (HDM)': alignments_hdm,
-                'Orient. Variance (HDM)': variances_hdm,
-                'Orient. Alignment (WIDTH)': alignments_width,
-                'Orient. Variance (WIDTH)': variances_width
-                }
-        df_orient = pd.DataFrame(data)
+        df_orient = pd.DataFrame(rows)
         self.df_stats = self.df_stats.merge(df_orient, on="Image")
 
     def quantify_skeletons(self):
