@@ -190,44 +190,19 @@ class Cabana:
 
     def detect_fibres(self):
         """Detect fibres in the ROI image"""
-        dark_line = self.args["Detection"]["Dark Line"]
-        extend_line = self.args["Detection"]["Extend Line"]
-        min_line_width = self.args["Detection"]["Min Line Width"]
-        max_line_width = self.args["Detection"]["Max Line Width"]
-        line_width_step = self.args["Detection"]["Line Width Step"]
-        line_widths = np.arange(min_line_width, max_line_width + line_width_step, line_width_step)
-        low_contrast = self.args["Detection"]["Low Contrast"]
-        high_contrast = self.args["Detection"]["High Contrast"]
-        min_len = self.args["Detection"]["Minimum Line Length"]
-        max_len = self.args["Detection"]["Maximum Line Length"]
-
+        from .stages import build_fibre_detector, detect_one_image
+        d = self.args["Detection"]
         print(f"Detecting fibres with line widths in "
-                        f"[{min_line_width}, {max_line_width}] pixels")
-
-        det = FibreDetector(line_widths=line_widths,
-                            low_contrast=low_contrast,
-                            high_contrast=high_contrast,
-                            dark_line=dark_line,
-                            extend_line=extend_line,
-                            correct_pos=False,
-                            min_len=min_len,
-                            max_len=max_len)
-
+              f"[{d['Min Line Width']}, {d['Max Line Width']}] pixels")
+        det = build_fibre_detector(self.args)
         img_path = join_path(self.roi_dir, self.name_wo_ext + '_roi.png')
-        det.detect_lines(img_path)
-        contour_img, width_img, binary_contours, binary_widths, int_width_img = det.get_results()
-
-        # Store images
-        self.contour_img = contour_img
-        self.width_img = width_img
-
-        # Save images
-        iio.imwrite(join_path(self.mask_dir, self.name_wo_ext + '_roi.png'), binary_contours)
-        iio.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_Mask.png"), binary_contours)
-        iio.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_Width.png"), binary_widths)
-        iio.imwrite(join_path(self.color_img_dir, self.name_wo_ext + "_color_mask.png"), contour_img)
-        iio.imwrite(join_path(self.color_img_dir, self.name_wo_ext + "_color_width.png"), width_img)
-        iio.imwrite(join_path(self.color_img_dir, self.name_wo_ext + "_gray_width.png"), int_width_img)
+        result = detect_one_image(det, img_path,
+                                  mask_dir=self.mask_dir,
+                                  export_subdir=self.export_img_dir,
+                                  color_subdir=self.color_img_dir,
+                                  artifact_stem=self.name_wo_ext)
+        self.contour_img = result['contour_img']
+        self.width_img = result['width_img']
 
     def analyze_orientation(self):
         """Analyze orientation of fibres"""

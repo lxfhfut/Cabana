@@ -5,12 +5,17 @@ and ``BatchCabana`` (folder of images). Keeping the science in one place
 prevents the two pipelines from drifting apart.
 """
 
+import os
+from pathlib import Path
+
 import cv2
 import numpy as np
 import imageio.v3 as iio
 from skimage.color import rgb2hed, hed2rgb, rgb2gray
 
 from .hdm import HDM
+from .detector import FibreDetector
+from .utils import join_path
 
 
 FIBRE_AREA_METRICS = (
@@ -98,4 +103,79 @@ def compute_fibre_areas(img_mask_path, ori_img_path, width_mask_path, hdm_mask_p
         'Mean Fibre Intensity (ROI)': mean_intensity_roi,
         'Mean Fibre Intensity (WIDTH)': mean_intensity_width,
         'Mean Fibre Intensity (HDM)': mean_intensity_hdm,
+    }
+
+
+def build_fibre_detector(args):
+    """Construct a FibreDetector from a parsed parameters dict."""
+    d = args["Detection"]
+    line_widths = np.arange(
+        d["Min Line Width"],
+        d["Max Line Width"] + d["Line Width Step"],
+        d["Line Width Step"],
+    )
+    return FibreDetector(
+        line_widths=line_widths,
+        low_contrast=d["Low Contrast"],
+        high_contrast=d["High Contrast"],
+        dark_line=d["Dark Line"],
+        extend_line=d["Extend Line"],
+        correct_pos=False,
+        min_len=d["Minimum Line Length"],
+        max_len=d["Maximum Line Length"],
+    )
+
+
+def detect_one_image(det, roi_img_path, mask_dir, export_subdir, color_subdir,
+                     mask_filename=None, artifact_stem=None):
+    """Run detection on one ROI image and write the standard artifacts.
+
+    Parameters
+    ----------
+    det : FibreDetector
+    roi_img_path : str
+        Path to the input ROI image.
+    mask_dir : str
+        Top-level Masks directory; receives the binary contour image.
+    export_subdir : str
+        Per-image directory under Exports/ for Mask/Width PNGs.
+    color_subdir : str
+        Per-image directory under Colors/ for color and gray Width PNGs.
+    mask_filename : str, optional
+        Filename for the mask file written to ``mask_dir``. Defaults to the
+        basename of ``roi_img_path``.
+    artifact_stem : str, optional
+        Filename stem used for files written into ``export_subdir`` and
+        ``color_subdir``. Defaults to ``mask_filename`` without extension.
+        Cabana passes the original image stem (no ``_roi`` suffix);
+        BatchCabana passes the roi-image stem.
+
+    Returns
+    -------
+    dict
+        ``{'contour_img', 'width_img', 'binary_contours', 'binary_widths',
+        'int_width_img'}``.
+    """
+    det.detect_lines(roi_img_path)
+    contour_img, width_img, binary_contours, binary_widths, int_width_img = det.get_results()
+
+    base = mask_filename or os.path.basename(roi_img_path)
+    stem = artifact_stem if artifact_stem is not None else os.path.splitext(base)[0]
+
+    Path(export_subdir).mkdir(parents=True, exist_ok=True)
+    Path(color_subdir).mkdir(parents=True, exist_ok=True)
+
+    iio.imwrite(join_path(mask_dir, base), binary_contours)
+    iio.imwrite(join_path(export_subdir, stem + "_Mask.png"), binary_contours)
+    iio.imwrite(join_path(export_subdir, stem + "_Width.png"), binary_widths)
+    iio.imwrite(join_path(color_subdir, stem + "_color_mask.png"), contour_img)
+    iio.imwrite(join_path(color_subdir, stem + "_color_width.png"), width_img)
+    iio.imwrite(join_path(color_subdir, stem + "_gray_width.png"), int_width_img)
+
+    return {
+        'contour_img': contour_img,
+        'width_img': width_img,
+        'binary_contours': binary_contours,
+        'binary_widths': binary_widths,
+        'int_width_img': int_width_img,
     }

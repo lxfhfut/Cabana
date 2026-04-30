@@ -208,55 +208,20 @@ class BatchCabana:
         Log.logger.info('Masks have been saved in {}'.format(self.seg_args.bin_dir))
 
     def detect_fibres(self):
-        dark_line = self.args["Detection"]["Dark Line"]
-        extend_line = self.args["Detection"]["Extend Line"]
-        # correct_pos = self.args["Detection"]["Correct Position"]
-        min_line_width = self.args["Detection"]["Min Line Width"]
-        max_line_width = self.args["Detection"]["Max Line Width"]
-        line_width_step = self.args["Detection"]["Line Width Step"]
-        line_widths = np.arange(min_line_width, max_line_width + line_width_step, line_width_step)
-        low_contrast = self.args["Detection"]["Low Contrast"]
-        high_contrast = self.args["Detection"]["High Contrast"]
-        min_len = self.args["Detection"]["Minimum Line Length"]
-        max_len = self.args["Detection"]["Maximum Line Length"]
-        Log.logger.info(f"Detecting fibres with line widths in "
-                        f"[{min_line_width}, {max_line_width}] pixels "
-                        f"for {len(glob(join_path(self.roi_dir, '*.png')))} images.")
-        det = FibreDetector(line_widths=line_widths,
-                            low_contrast=low_contrast,
-                            high_contrast=high_contrast,
-                            dark_line=dark_line,
-                            extend_line=extend_line,
-                            correct_pos=False,
-                            min_len=min_len,
-                            max_len=max_len)
+        from .stages import build_fibre_detector, detect_one_image
+        d = self.args["Detection"]
         img_paths = glob(join_path(self.roi_dir, '*.png'))
+        Log.logger.info(f"Detecting fibres with line widths in "
+                        f"[{d['Min Line Width']}, {d['Max Line Width']}] pixels "
+                        f"for {len(img_paths)} images.")
+        det = build_fibre_detector(self.args)
         for img_path in tqdm(img_paths, bar_format=read_bar_format):
-            det.detect_lines(img_path)
-            contour_img, width_img, binary_contours, binary_widths, int_width_img = det.get_results()
-
             ori_img_name = os.path.basename(img_path)
-            name_wo_ext = ori_img_name[:ori_img_name.rindex('.')]
-
-            # export binary contours to 'Mask' folder
-            iio.imwrite(join_path(self.mask_dir, ori_img_name), binary_contours)
-
-            # export binary contours and widths to 'Export' folder
-            Path(join_path(self.export_dir, name_wo_ext)).mkdir(parents=True, exist_ok=True)
-            iio.imwrite(
-                join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Mask.png"), binary_contours)
-            iio.imwrite(
-                join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Width.png"), binary_widths)
-
-            # export colorized contours and widths to 'Color' folder
-            Path(join_path(self.color_dir, name_wo_ext)).mkdir(parents=True, exist_ok=True)
-            iio.imwrite(
-                join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_mask.png"), contour_img)
-            iio.imwrite(
-                join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_width.png"), width_img)
-            iio.imwrite(
-                join_path(self.color_dir, name_wo_ext, name_wo_ext + "_gray_width.png"), int_width_img)
-
+            name_wo_ext = os.path.splitext(ori_img_name)[0]
+            detect_one_image(det, img_path,
+                             mask_dir=self.mask_dir,
+                             export_subdir=join_path(self.export_dir, name_wo_ext),
+                             color_subdir=join_path(self.color_dir, name_wo_ext))
             self._tick()
 
     def analyze_orientations(self):
