@@ -354,21 +354,11 @@ class Cabana:
 
     def quantify_hdm(self):
         """Quantify high density matrix areas"""
-        max_hdm = self.args["Quantification"]["Maximum Display HDM"]
-        sat_ratio = self.args["Quantification"]["Contrast Enhancement"]
-        dark_line = self.args["Detection"]["Dark Line"]
-
-        hdm = HDM(max_hdm=max_hdm, sat_ratio=sat_ratio, dark_line=dark_line)
-
-        # Analyze single image
+        from .stages import run_hdm
         img_path = join_path(self.eligible_dir, self.name_wo_ext + ".png")
-
-        # HDM analysis
-        hdm.quantify_black_space(img_path, self.hdm_dir, ext=".png")
-
-        # Store HDM image and metrics
+        df_hdm = run_hdm(self.args, img_path, self.hdm_dir, ext=".png")
         self.stats.loc[0, 'Image'] = self.name_wo_ext + '_roi.png'
-        self.stats.loc[0, '% HDM Area'] = hdm.df_hdm["% HDM Area"].iloc[0]
+        self.stats.loc[0, '% HDM Area'] = df_hdm["% HDM Area"].iloc[0]
 
     def analyze_gaps(self):
         """Analyze gaps in the image"""

@@ -415,15 +415,11 @@ class BatchCabana:
         self.df_stats = self.df_stats.merge(df_skel, on="Image")
 
     def quantify_hdm(self):
+        from .stages import run_hdm
         n_elig = len(glob(join_path(self.eligible_dir, '*.png')))
         Log.logger.info(f"Quantifying High Density Matrix (HDM) areas for "
                         f"{n_elig} images.")
-        max_hdm = self.args["Quantification"]["Maximum Display HDM"],
-        sat_ratio = self.args["Quantification"]["Contrast Enhancement"]
-        dark_line = self.args["Detection"]["Dark Line"]
-        hdm = HDM(max_hdm=max_hdm, sat_ratio=sat_ratio, dark_line=dark_line)
-        hdm.quantify_black_space(self.eligible_dir, self.hdm_dir, ext=".png")
-        self.df_stats = hdm.df_hdm
+        self.df_stats = run_hdm(self.args, self.eligible_dir, self.hdm_dir, ext=".png")
         # HDM loops internally; emit a coarse tick batch covering the whole stage.
         self._tick(n_elig)
 
