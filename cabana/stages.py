@@ -326,13 +326,11 @@ def analyze_one_orientation(orient_analyzer, roi_img_path, mask_roi_path,
 
     orient_analyzer.compute_orient(roi_img_path)
 
-    coh_roi = orient_analyzer.mean_coherency(mask=mask_roi)
-    var_roi = orient_analyzer.circular_variance(mask=mask_roi)
     metrics = {
-        'Orient. Alignment': coh_roi,
-        'Orient. Variance': var_roi,
-        'Orient. Alignment (ROI)': coh_roi,
-        'Orient. Variance (ROI)': var_roi,
+        'Orient. Alignment': orient_analyzer.mean_coherency(),
+        'Orient. Variance': orient_analyzer.circular_variance(),
+        'Orient. Alignment (ROI)': orient_analyzer.mean_coherency(mask=mask_roi),
+        'Orient. Variance (ROI)': orient_analyzer.circular_variance(mask=mask_roi),
         'Orient. Alignment (HDM)': orient_analyzer.mean_coherency(mask=mask_hdm),
         'Orient. Variance (HDM)': orient_analyzer.circular_variance(mask=mask_hdm),
         'Orient. Alignment (WIDTH)': orient_analyzer.mean_coherency(mask=mask_width),
@@ -343,7 +341,7 @@ def analyze_one_orientation(orient_analyzer, roi_img_path, mask_roi_path,
         'energy': orient_analyzer.get_energy_image(),
         'coherency': orient_analyzer.get_coherency_image(),
         'orientation': orient_analyzer.get_orientation_image(),
-        'color_survey': orient_analyzer.draw_color_survey(mask=mask_roi),
+        'color_survey': orient_analyzer.draw_color_survey(),
         'vector_field': orient_analyzer.draw_vector_field(mask_roi / 255.0),
         'angular_hist': orient_analyzer.draw_angular_hist(mask=mask_roi),
     }
