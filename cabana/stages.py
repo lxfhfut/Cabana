@@ -20,6 +20,45 @@ from .orientation import OrientationAnalyzer
 from .utils import join_path
 
 
+def summary_stats(values, label, include_count=False, count_label=None):
+    """Return mean/std/percentile5/median/percentile95 keyed by ``'<stat> ({label})'``.
+
+    If ``values`` is empty, every entry is 0. When ``include_count`` is true,
+    a count entry is added under ``count_label`` (defaulting to
+    ``f'Count ({label})'``).
+    """
+    keys = ('Mean', 'Std', 'Percentile5', 'Median', 'Percentile95')
+    if len(values) == 0:
+        out = {f'{k} ({label})': 0 for k in keys}
+    else:
+        out = {
+            f'Mean ({label})':         float(np.mean(values)),
+            f'Std ({label})':          float(np.std(values)),
+            f'Percentile5 ({label})':  float(np.percentile(values, 5)),
+            f'Median ({label})':       float(np.median(values)),
+            f'Percentile95 ({label})': float(np.percentile(values, 95)),
+        }
+    if include_count:
+        out[count_label or f'Count ({label})'] = int(len(values))
+    return out
+
+
+def safe_div(stats, num_col, den_col, out_col, denom_transform=None):
+    """Single-row stats DataFrame helper: write num/den (or 0) to out_col.
+
+    No-op when either input column is missing (the output column is not
+    created). When both are present and the (optionally transformed)
+    denominator is non-positive, writes 0. Mutates and returns ``stats``.
+    """
+    if num_col not in stats.columns or den_col not in stats.columns:
+        return stats
+    d = stats.loc[0, den_col]
+    if denom_transform is not None:
+        d = denom_transform(d)
+    stats.loc[0, out_col] = stats.loc[0, num_col] / d if d > 0 else 0
+    return stats
+
+
 ORIENT_METRICS = (
     'Orient. Alignment', 'Orient. Variance',
     'Orient. Alignment (ROI)', 'Orient. Variance (ROI)',

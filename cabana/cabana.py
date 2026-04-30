@@ -338,35 +338,16 @@ class Cabana:
         cv2.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_GapImage.png"), color_result)
 
         # Calculate gap metrics
-        areas = np.pi * (np.array(final_circles)[:, 2] ** 2) * self.ims_res ** 2
+        from .stages import summary_stats
+        areas = np.pi * (np.array(final_circles)[:, 2] ** 2) * self.ims_res ** 2 if len(final_circles) else np.array([])
+        radius_values = np.sqrt(areas / np.pi) if len(areas) else np.array([])
 
-        if len(areas) > 0:
-            # Store gap metrics
-            self.stats.loc[0, 'Mean (All gaps area in µm²)'] = np.mean(areas)
-            self.stats.loc[0, 'Std (All gaps area in µm²)'] = np.std(areas)
-            self.stats.loc[0, 'Percentile5 (All gaps area in µm²)'] = np.percentile(areas, 5)
-            self.stats.loc[0, 'Median (All gaps area in µm²)'] = np.median(areas)
-            self.stats.loc[0, 'Percentile95 (All gaps area in µm²)'] = np.percentile(areas, 95)
-            self.stats.loc[0, 'Gap Circles Count (All)'] = areas.size
-
-            # Convert to radius metrics
-            radius_values = np.sqrt(areas / np.pi)
-            self.stats.loc[0, 'Mean (All gaps radius in µm)'] = np.mean(radius_values)
-            self.stats.loc[0, 'Std (All gaps radius in µm)'] = np.std(radius_values)
-            self.stats.loc[0, 'Median (All gaps radius in µm)'] = np.median(radius_values)
-            self.stats.loc[0, 'Percentile5 (All gaps radius in µm)'] = np.percentile(radius_values, 5)
-            self.stats.loc[0, 'Percentile95 (All gaps radius in µm)'] = np.percentile(radius_values, 95)
-        else:
-            # Fill with zeros if no gaps found
-            gap_metrics = ['Mean (All gaps area in µm²)', 'Std (All gaps area in µm²)',
-                           'Percentile5 (All gaps area in µm²)', 'Median (All gaps area in µm²)',
-                           'Percentile95 (All gaps area in µm²)', 'Gap Circles Count (All)',
-                           'Mean (All gaps radius in µm)', 'Std (All gaps radius in µm)',
-                           'Median (All gaps radius in µm)', 'Percentile5 (All gaps radius in µm)',
-                           'Percentile95 (All gaps radius in µm)']
-
-            for metric in gap_metrics:
-                self.stats.loc[0, metric] = 0
+        for k, v in summary_stats(areas, 'All gaps area in µm²',
+                                  include_count=True,
+                                  count_label='Gap Circles Count (All)').items():
+            self.stats.loc[0, k] = v
+        for k, v in summary_stats(radius_values, 'All gaps radius in µm').items():
+            self.stats.loc[0, k] = v
 
         # Save gap data to CSV
         if len(final_circles) > 0:
@@ -421,34 +402,16 @@ class Cabana:
         cv2.imwrite(join_path(gap_result_dir, self.name_wo_ext + "_GapImage_intra_gaps.png"), color_img_fibre)
         cv2.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_GapImage_intra_gaps.png"), color_img)
 
+        from .stages import summary_stats
         areas = np.array(areas)
+        radius = np.sqrt(areas / np.pi) if len(areas) else np.array([])
 
-        if len(areas) > 0:
-            radius = np.sqrt(areas / np.pi)
-
-            # Store metrics
-            self.stats.loc[0, 'Mean (ROI gaps area in µm²)'] = np.mean(areas)
-            self.stats.loc[0, 'Std (ROI gaps area in µm²)'] = np.std(areas)
-            self.stats.loc[0, 'Percentile5 (ROI gaps area in µm²)'] = np.percentile(areas, 5)
-            self.stats.loc[0, 'Median (ROI gaps area in µm²)'] = np.median(areas)
-            self.stats.loc[0, 'Percentile95 (ROI gaps area in µm²)'] = np.percentile(areas, 95)
-            self.stats.loc[0, 'Mean (ROI gaps radius in µm)'] = np.mean(radius)
-            self.stats.loc[0, 'Std (ROI gaps radius in µm)'] = np.std(radius)
-            self.stats.loc[0, 'Percentile5 (ROI gaps radius in µm)'] = np.percentile(radius, 5)
-            self.stats.loc[0, 'Median (ROI gaps radius in µm)'] = np.median(radius)
-            self.stats.loc[0, 'Percentile95 (ROI gaps radius in µm)'] = np.percentile(radius, 95)
-            self.stats.loc[0, 'Gap Circles Count (ROI)'] = circle_cnt
-        else:
-            # Fill with zeros if no gaps found
-            intra_gap_metrics = ['Mean (ROI gaps area in µm²)', 'Std (ROI gaps area in µm²)',
-                                 'Percentile5 (ROI gaps area in µm²)', 'Median (ROI gaps area in µm²)',
-                                 'Percentile95 (ROI gaps area in µm²)', 'Gap Circles Count (ROI)',
-                                 'Mean (ROI gaps radius in µm)', 'Std (ROI gaps radius in µm)',
-                                 'Median (ROI gaps radius in µm)', 'Percentile5 (ROI gaps radius in µm)',
-                                 'Percentile95 (ROI gaps radius in µm)']
-
-            for metric in intra_gap_metrics:
-                self.stats.loc[0, metric] = 0
+        for k, v in summary_stats(areas, 'ROI gaps area in µm²',
+                                  include_count=True,
+                                  count_label='Gap Circles Count (ROI)').items():
+            self.stats.loc[0, k] = v
+        for k, v in summary_stats(radius, 'ROI gaps radius in µm').items():
+            self.stats.loc[0, k] = v
 
     def calc_fibre_areas(self):
         """Calculate fibre areas and related metrics"""
@@ -524,97 +487,33 @@ class Cabana:
 
     def normalize_statistics(self):
         """Normalize various statistics"""
+        from .stages import safe_div
         print('Normalizing statistics')
 
-        # Normalize fibre area
-        if 'Fibre Area (WIDTH, µm²)' in self.stats.columns and 'Fibre Area (ROI, µm²)' in self.stats.columns:
-            if self.stats.loc[0, 'Fibre Area (ROI, µm²)'] > 0:
-                self.stats.loc[0, 'Fibre Coverage (WIDTH/ROI)'] = self.stats.loc[0, 'Fibre Area (WIDTH, µm²)'] / \
-                                                                  self.stats.loc[0, 'Fibre Area (ROI, µm²)']
-            else:
-                self.stats.loc[0, 'Fibre Coverage (WIDTH/ROI)'] = 0
+        safe_div(self.stats, 'Fibre Area (WIDTH, µm²)', 'Fibre Area (ROI, µm²)',
+                 'Fibre Coverage (WIDTH/ROI)')
+        safe_div(self.stats, 'Branchpoints', 'Total Length (µm)',
+                 'Branchpoints Density (µm⁻¹)')
+        safe_div(self.stats, 'Endpoints', 'Total Length (µm)',
+                 'Endpoints Density (µm⁻¹)')
 
-        # Normalize branch and end points
-        if 'Total Length (µm)' in self.stats.columns and self.stats.loc[0, 'Total Length (µm)'] > 0:
-            if 'Branchpoints' in self.stats.columns:
-                self.stats.loc[0, 'Branchpoints Density (µm⁻¹)'] = self.stats.loc[0, 'Branchpoints'] / self.stats.loc[
-                    0, 'Total Length (µm)']
-
-            if 'Endpoints' in self.stats.columns:
-                self.stats.loc[0, 'Endpoints Density (µm⁻¹)'] = self.stats.loc[0, 'Endpoints'] / self.stats.loc[
-                    0, 'Total Length (µm)']
-        else:
-            density_metrics = ['Branchpoints Density (µm⁻¹)', 'Endpoints Density (µm⁻¹)']
-            for metric in density_metrics:
-                self.stats.loc[0, metric] = 0
-
-        # Normalize gap area
-        if self.args["Configs"]["Gap Analysis"] and self.args["Gap Analysis"]["Minimum Gap Diameter"] > 0:
-            # Normalize all gaps area
-            if 'Mean (All gaps area in µm²)' in self.stats.columns and 'Total Image Area (µm²)' in self.stats.columns:
-                if self.stats.loc[0, 'Total Image Area (µm²)'] > 0:
-                    self.stats.loc[0, 'Normalized Mean (All gaps area)'] = self.stats.loc[
-                                                                               0, 'Mean (All gaps area in µm²)'] / \
-                                                                           self.stats.loc[0, 'Total Image Area (µm²)']
-                    self.stats.loc[0, 'Normalized Std (All gaps area)'] = self.stats.loc[
-                                                                              0, 'Std (All gaps area in µm²)'] / \
-                                                                          self.stats.loc[0, 'Total Image Area (µm²)']
-                else:
-                    self.stats.loc[0, 'Normalized Mean (All gaps area)'] = 0
-                    self.stats.loc[0, 'Normalized Std (All gaps area)'] = 0
-
-            # Normalize ROI gaps area
-            if 'Mean (ROI gaps area in µm²)' in self.stats.columns and 'Fibre Area (ROI, µm²)' in self.stats.columns:
-                if self.stats.loc[0, 'Fibre Area (ROI, µm²)'] > 0:
-                    self.stats.loc[0, 'Normalized Mean (ROI gaps area)'] = self.stats.loc[
-                                                                               0, 'Mean (ROI gaps area in µm²)'] / \
-                                                                           self.stats.loc[0, 'Fibre Area (ROI, µm²)']
-                    self.stats.loc[0, 'Normalized Std (ROI gaps area)'] = self.stats.loc[
-                                                                              0, 'Std (ROI gaps area in µm²)'] / \
-                                                                          self.stats.loc[0, 'Fibre Area (ROI, µm²)']
-                else:
-                    self.stats.loc[0, 'Normalized Mean (ROI gaps area)'] = 0
-                    self.stats.loc[0, 'Normalized Std (ROI gaps area)'] = 0
-
-            # Normalize gap radius
-            if 'Mean (All gaps radius in µm)' in self.stats.columns and 'Total Image Area (µm²)' in self.stats.columns:
-                if self.stats.loc[0, 'Total Image Area (µm²)'] > 0:
-                    self.stats.loc[0, 'Normalized Mean (All gaps radius)'] = self.stats.loc[
-                                                                                 0, 'Mean (All gaps radius in µm)'] / np.sqrt(
-                        self.stats.loc[0, 'Total Image Area (µm²)'])
-                    self.stats.loc[0, 'Normalized Std (All gaps radius)'] = self.stats.loc[
-                                                                                0, 'Std (All gaps radius in µm)'] / np.sqrt(
-                        self.stats.loc[0, 'Total Image Area (µm²)'])
-                else:
-                    self.stats.loc[0, 'Normalized Mean (All gaps radius)'] = 0
-                    self.stats.loc[0, 'Normalized Std (All gaps radius)'] = 0
-
-            if 'Mean (ROI gaps radius in µm)' in self.stats.columns and 'Fibre Area (ROI, µm²)' in self.stats.columns:
-                if self.stats.loc[0, 'Fibre Area (ROI, µm²)'] > 0:
-                    self.stats.loc[0, 'Normalized Mean (ROI gaps radius)'] = self.stats.loc[
-                                                                                 0, 'Mean (ROI gaps radius in µm)'] / np.sqrt(
-                        self.stats.loc[0, 'Fibre Area (ROI, µm²)'])
-                    self.stats.loc[0, 'Normalized Std (ROI gaps radius)'] = self.stats.loc[
-                                                                                0, 'Std (ROI gaps radius in µm)'] / np.sqrt(
-                        self.stats.loc[0, 'Fibre Area (ROI, µm²)'])
-                else:
-                    self.stats.loc[0, 'Normalized Mean (ROI gaps radius)'] = 0
-                    self.stats.loc[0, 'Normalized Std (ROI gaps radius)'] = 0
-
-            # Normalize gap number
-            if 'Gap Circles Count (All)' in self.stats.columns and 'Total Image Area (µm²)' in self.stats.columns:
-                if self.stats.loc[0, 'Total Image Area (µm²)'] > 0:
-                    self.stats.loc[0, 'Gap density (All, µm⁻²)'] = self.stats.loc[0, 'Gap Circles Count (All)'] / \
-                                                                   self.stats.loc[0, 'Total Image Area (µm²)']
-                else:
-                    self.stats.loc[0, 'Gap density (All, µm⁻²)'] = 0
-
-            if 'Gap Circles Count (ROI)' in self.stats.columns and 'Fibre Area (ROI, µm²)' in self.stats.columns:
-                if self.stats.loc[0, 'Fibre Area (ROI, µm²)'] > 0:
-                    self.stats.loc[0, 'Gap density (ROI, µm⁻²)'] = self.stats.loc[0, 'Gap Circles Count (ROI)'] / \
-                                                                   self.stats.loc[0, 'Fibre Area (ROI, µm²)']
-                else:
-                    self.stats.loc[0, 'Gap density (ROI, µm⁻²)'] = 0
+        if (self.args["Configs"]["Gap Analysis"]
+                and self.args["Gap Analysis"]["Minimum Gap Diameter"] > 0):
+            # (numerator, denominator, output, denom_transform)
+            ratios = [
+                ('Mean (All gaps area in µm²)',  'Total Image Area (µm²)', 'Normalized Mean (All gaps area)', None),
+                ('Std (All gaps area in µm²)',   'Total Image Area (µm²)', 'Normalized Std (All gaps area)',  None),
+                ('Mean (ROI gaps area in µm²)',  'Fibre Area (ROI, µm²)',  'Normalized Mean (ROI gaps area)', None),
+                ('Std (ROI gaps area in µm²)',   'Fibre Area (ROI, µm²)',  'Normalized Std (ROI gaps area)',  None),
+                ('Mean (All gaps radius in µm)', 'Total Image Area (µm²)', 'Normalized Mean (All gaps radius)', np.sqrt),
+                ('Std (All gaps radius in µm)',  'Total Image Area (µm²)', 'Normalized Std (All gaps radius)',  np.sqrt),
+                ('Mean (ROI gaps radius in µm)', 'Fibre Area (ROI, µm²)',  'Normalized Mean (ROI gaps radius)', np.sqrt),
+                ('Std (ROI gaps radius in µm)',  'Fibre Area (ROI, µm²)',  'Normalized Std (ROI gaps radius)',  np.sqrt),
+                ('Gap Circles Count (All)',      'Total Image Area (µm²)', 'Gap density (All, µm⁻²)',          None),
+                ('Gap Circles Count (ROI)',      'Fibre Area (ROI, µm²)',  'Gap density (ROI, µm⁻²)',          None),
+            ]
+            for num, den, out, t in ratios:
+                safe_div(self.stats, num, den, out, denom_transform=t)
 
         # Normalize lacunarity
         if 'Lacunarity' in self.stats.columns and 'Total Length (µm)' in self.stats.columns:
