@@ -7,6 +7,7 @@ opencv-python
 pip-chill
 pyqt5
 pyyaml
+scikit-image>=0.26
 scikit-learn
 seaborn
 seaborn-image

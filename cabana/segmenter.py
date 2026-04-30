@@ -251,7 +251,7 @@ def segment_single_image(args, iter_callback=None):
 
         # Apply threshold and clean up small objects/holes
         thresholded = rel_color_dist > args.rt
-        thresholded = remove_small_holes(thresholded, args.min_size)
+        thresholded = remove_small_holes(thresholded, max_size=args.min_size)
         thresholded = remove_small_objects(thresholded, args.min_size)
         mask = 255 * (thresholded.astype("uint8"))
 

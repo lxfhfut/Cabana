@@ -705,7 +705,7 @@ class SegmentationWorker(QThread):
         mean_img = mean_image(rgb_image, labels)
         abs_color_dist, rel_color_dist = cal_color_dist(mean_img, self.args.hue_value)
         thresholded = rel_color_dist > self.args.rt
-        thresholded = remove_small_holes(thresholded, self.args.min_size)
+        thresholded = remove_small_holes(thresholded, max_size=self.args.min_size)
         thresholded = remove_small_objects(thresholded, self.args.min_size)
 
         # Create the final segmented image

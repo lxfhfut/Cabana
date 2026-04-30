@@ -1190,7 +1190,7 @@ class SkeletonAnalyzer:
 
         # Step 1: Skeletonize the binary image
         # First remove small holes, then perform skeletonization
-        skeleton = skeletonize(remove_small_holes(self.raw_image == self.FOREGROUND, self.hole_thresh))
+        skeleton = skeletonize(remove_small_holes(self.raw_image == self.FOREGROUND, max_size=self.hole_thresh))
         self.skel_image = (skeleton * self.FOREGROUND).astype(np.uint8)
 
         # Step 2: Construct graph representation

@@ -343,7 +343,7 @@ def split2batches(img_paths, max_batch_size=5):
                         yres = round(1.0 / float(val), 2)
                         found = True
             if found:
-                if xres != yres:
+                if abs(xres - yres) > 0.01:
                     print('Warning: XResolution and YResolution in metadata are different! Using XResolution...')
                 pixel_res.append(xres)
             else:
