@@ -177,7 +177,20 @@ class BatchCabana:
             Log.logger.info('Segmenting {} images in {}'.format(len(img_paths), self.input_folder))
             for i, img_path in enumerate(img_paths):
                 setattr(self.seg_args, 'input', img_path)
-                segment_single_image(self.seg_args)
+                # Sub-image progress: emit a fractional position inside the
+                # current image's tick window so the bar advances during the
+                # CNN max_iter loop (the slowest stage). The permanent
+                # per-image bump happens once via _tick() below.
+                base_done = self._progress_done
+
+                def _seg_iter_cb(it, max_iter, _base=base_done):
+                    if not self.progress_callback or self._progress_total <= 0:
+                        return
+                    frac_in_image = min(1.0, (it + 1) / max(1, max_iter))
+                    done = _base + frac_in_image
+                    self.progress_callback(min(1.0, done / self._progress_total))
+
+                segment_single_image(self.seg_args, iter_callback=_seg_iter_cb)
                 self._tick()
 
         else:

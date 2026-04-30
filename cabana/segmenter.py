@@ -83,7 +83,7 @@ def parse_args():
     return args
 
 
-def segment_single_image(args):
+def segment_single_image(args, iter_callback=None):
     """
     Segment a single image using a CNN + CRF approach.
 
@@ -96,6 +96,11 @@ def segment_single_image(args):
 
     Args:
         args (argparse.Namespace): Configuration parameters
+        iter_callback (callable, optional): If provided, called once per
+            training iteration as ``iter_callback(iter_idx, max_iter)`` where
+            ``iter_idx`` is zero-based. Used by the GUI to advance the batch
+            progress bar continuously during the CNN loop, which dominates
+            wall-clock time per image. Must not raise.
 
     Returns:
         tuple: (area, percentage) where area is the segmented area in pixels and
@@ -220,6 +225,10 @@ def segment_single_image(args):
         # Update progress bar
         pbar.set_description(
             f"Iteration {batch_idx}/{args.max_iter}: {num_labels} labels, loss: {loss.item():.2f}")
+
+        # Notify host of sub-image progress for the batch progress bar.
+        if iter_callback is not None:
+            iter_callback(batch_idx, args.max_iter)
 
         # Early stopping condition
         if num_labels <= args.min_labels:

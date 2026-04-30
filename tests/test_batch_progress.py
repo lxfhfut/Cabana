@@ -246,6 +246,95 @@ def test_process_emits_smooth_per_image_progress(tmp_path, monkeypatch):
     assert len(_FakeBatchCabana.instances) == 2
 
 
+def test_segmenter_accepts_iter_callback_param():
+    """segment_single_image must expose iter_callback as a keyword arg."""
+    import inspect
+    from cabana.segmenter import segment_single_image
+    sig = inspect.signature(segment_single_image)
+    assert 'iter_callback' in sig.parameters
+    assert sig.parameters['iter_callback'].default is None
+
+
+def test_generate_rois_emits_sub_image_progress(monkeypatch, tmp_path):
+    """During segmentation, the iter_callback should drive multiple progress
+    fractions per image — not just one tick at the end."""
+    import cabana.batch as batch_mod
+
+    # Stand in for segment_single_image: invoke iter_callback 5 times per image
+    # to simulate an in-progress CNN training loop.
+    def fake_segment(args, iter_callback=None):
+        if iter_callback is not None:
+            for it in range(5):
+                iter_callback(it, 5)
+
+    monkeypatch.setattr(batch_mod, "segment_single_image", fake_segment)
+
+    bc = _make_batch_cabana(None)
+    bc.args = {"Configs": {"Segmentation": True, "Quantification": False, "Gap Analysis": False}}
+
+    # Construct a fake input folder with 2 images by patching get_img_paths.
+    fake_paths = ["/fake/img_0.png", "/fake/img_1.png"]
+    monkeypatch.setattr(batch_mod, "get_img_paths", lambda *_a, **_kw: fake_paths)
+
+    # Set tick budget to 2 (one per image) so fractions land in [0, 1].
+    bc._progress_total = 2
+    bc._progress_done = 0
+    bc.input_folder = "/fake"
+    bc.seg_args = types.SimpleNamespace(roi_dir="/tmp", bin_dir="/tmp", input=None)
+
+    fractions = []
+    bc.progress_callback = fractions.append
+    bc.generate_rois()
+
+    # We expect at least 2 sub-image emissions per image (5 iter callbacks +
+    # one final _tick per image = 6 emissions per image, 12 total). Even if
+    # _tick deduplicates against the last iter emission, we should be well
+    # above the per-image-only count of 2.
+    assert len(fractions) >= 10, f"expected >=10 progress emissions, got {len(fractions)}: {fractions}"
+    # Monotone non-decreasing
+    assert fractions == sorted(fractions), f"non-monotone: {fractions}"
+    # Final emission lands at exactly 1.0 (both images fully ticked).
+    assert fractions[-1] == 1.0
+
+
+def test_generate_rois_no_segmentation_skips_iter_callback(monkeypatch, tmp_path):
+    """When Configs.Segmentation is False, generate_rois copies images via
+    a trivial mask instead of running the CNN. Per-image ticks still fire,
+    but no iter_callback is involved."""
+    import cabana.batch as batch_mod
+    import numpy as np
+    import cv2
+
+    # Build a small input image so generate_rois' fallback branch can read it.
+    src = tmp_path / "src"
+    src.mkdir()
+    paths = []
+    for i in range(2):
+        p = src / f"img_{i}.png"
+        cv2.imwrite(str(p), np.ones((4, 4, 3), dtype=np.uint8) * 200)
+        paths.append(str(p))
+
+    out = tmp_path / "out"
+    (out / "roi").mkdir(parents=True)
+    (out / "bin").mkdir(parents=True)
+
+    bc = _make_batch_cabana(None)
+    bc.args = {"Configs": {"Segmentation": False, "Quantification": False, "Gap Analysis": False}}
+    bc.input_folder = str(src)
+    bc.seg_args = types.SimpleNamespace(
+        roi_dir=str(out / "roi"), bin_dir=str(out / "bin"), input=None
+    )
+    bc._progress_total = 2
+    bc._progress_done = 0
+
+    fractions = []
+    bc.progress_callback = fractions.append
+    bc.generate_rois()
+
+    # Exactly one tick per image -> two emissions, ending at 1.0
+    assert fractions == [0.5, 1.0]
+
+
 def test_process_resume_advances_progress_immediately(tmp_path, monkeypatch):
     """Resuming from batch 1 of 3 should jump the bar to ~57% before any work."""
     input_dir = tmp_path / "in"
