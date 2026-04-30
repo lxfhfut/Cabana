@@ -430,20 +430,6 @@ def cal_color_dist(rgb_image, hue=1.0):
     return absolute_greenness, relative_greenness
 
 
-def crop_img_from_center(img, crop_size=(512, 512)):
-    assert (img.shape[0] >= crop_size[0])
-    assert (img.shape[1] >= crop_size[1])
-    assert (len(img.shape) == 2 or len(img.shape) == 3)
-    cw = img.shape[1] // 2
-    ch = img.shape[0] // 2
-    x = cw - crop_size[1] // 2
-    y = ch - crop_size[0] // 2
-    if len(img.shape) == 3:
-        return img[y:y + crop_size[0], x:x + crop_size[1], :]
-    else:
-        return img[y:y + crop_size[0], x:x + crop_size[1]]
-
-
 def crop_img_from_center(img, width=512):
     assert (img.shape[1] >= width)
     assert (len(img.shape) == 2 or len(img.shape) == 3)
@@ -1127,22 +1113,6 @@ def compute_eigenvals(dfdrr, dfdrc, dfdcc):
             eigvec[1][0] = n1
             eigvec[1][1] = n2
     return eigval, eigvec
-
-
-def normalize(x, pmin=2, pmax=98, axis=None, eps=1e-20, dtype=np.float32):
-    """Percentile-based image normalization."""
-
-    mi = np.percentile(x, pmin, axis=axis, keepdims=True)
-    ma = np.percentile(x, pmax, axis=axis, keepdims=True)
-    if dtype is not None:
-        x = x.astype(dtype, copy=False)
-        mi = dtype(mi) if np.isscalar(mi) else mi.astype(dtype, copy=False)
-        ma = dtype(ma) if np.isscalar(ma) else ma.astype(dtype, copy=False)
-        eps = dtype(eps)
-
-    x = (x - mi) / (ma - mi + eps)
-
-    return np.clip(x, 0, 1)
 
 
 @jit(nopython=True)
