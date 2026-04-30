@@ -56,6 +56,12 @@ class BatchCabana:
         self.ignore_large = ignore_large
         self.progress_callback = progress_callback
 
+        # Progress tracking. _progress_total is the expected number of per-image
+        # iterations across all stages of run(); _tick() is invoked after each
+        # such iteration and emits the running fraction (0..1) to the callback.
+        self._progress_done = 0
+        self._progress_total = 1
+
         # Create sub-folders in output directory
         self.roi_dir = join_path(self.output_folder, 'ROIs', "")
         self.bin_dir = join_path(self.output_folder, 'Bins', "")
@@ -76,6 +82,14 @@ class BatchCabana:
         create_folder(self.bin_dir)
         setattr(self.seg_args, 'roi_dir', self.roi_dir)
         setattr(self.seg_args, 'bin_dir', self.bin_dir)
+
+    def _tick(self, n=1):
+        """Advance progress by ``n`` per-image ticks and notify the callback."""
+        if not self.progress_callback:
+            return
+        self._progress_done += n
+        frac = min(1.0, self._progress_done / max(1, self._progress_total))
+        self.progress_callback(frac)
 
     def initialize_params(self):
         with open(self.param_file) as pf:
@@ -164,6 +178,7 @@ class BatchCabana:
             for i, img_path in enumerate(img_paths):
                 setattr(self.seg_args, 'input', img_path)
                 segment_single_image(self.seg_args)
+                self._tick()
 
         else:
             Log.logger.info("No segmentation is applied prior to image analysis.")
@@ -174,6 +189,7 @@ class BatchCabana:
                 img_name = os.path.splitext(os.path.basename(self.seg_args.input))[0]
                 cv2.imwrite(join_path(self.seg_args.roi_dir, img_name + '_roi.png'), img)
                 cv2.imwrite(join_path(self.seg_args.bin_dir, img_name + '_mask.png'), mask)
+                self._tick()
 
         Log.logger.info('ROIs have been saved in {}'.format(self.seg_args.roi_dir))
         Log.logger.info('Masks have been saved in {}'.format(self.seg_args.bin_dir))
@@ -228,6 +244,8 @@ class BatchCabana:
             iio.imwrite(
                 join_path(self.color_dir, name_wo_ext, name_wo_ext + "_gray_width.png"), int_width_img)
 
+            self._tick()
+
     def analyze_orientations(self):
         orient_analyzer = OrientationAnalyzer(2.0)
         # Initialize all lists in a more compact way
@@ -254,6 +272,7 @@ class BatchCabana:
                 iio.imwrite(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_Color_Survey.tif"), mask_roi)
                 iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_orient_vf.png"), mask_roi)
                 iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_angular_hist.png"), mask_roi)
+                self._tick()
                 continue
 
             mask_hdm = (iio.imread(join_path(self.hdm_dir, name_wo_ext[:-4]+"_roi.png")) > 0).astype(np.uint8)*255
@@ -292,6 +311,8 @@ class BatchCabana:
             iio.imwrite(join_path(
                 self.color_dir, name_wo_ext, name_wo_ext + "_angular_hist.png"),
                 orient_analyzer.draw_angular_hist(mask=mask_roi))
+
+            self._tick()
 
         data = {'Image': img_names,
                 'Orient. Alignment': alignments,
@@ -364,6 +385,8 @@ class BatchCabana:
                     self.export_dir, name_wo_ext, f"{name_wo_ext}_Curve_Map_{win_sz}.tif"),
                     skel_analyzer.curve_map_all)
 
+            self._tick()
+
         data = {'Image': img_names,
                 'Area of Fibre Spines (µm²)': proj_areas,
                 'Lacunarity': lacunarities,
@@ -379,14 +402,17 @@ class BatchCabana:
         self.df_stats = self.df_stats.merge(df_skel, on="Image")
 
     def quantify_hdm(self):
+        n_elig = len(glob(join_path(self.eligible_dir, '*.png')))
         Log.logger.info(f"Quantifying High Density Matrix (HDM) areas for "
-                        f"{len(glob(join_path(self.eligible_dir, '*.png')))} images.")
+                        f"{n_elig} images.")
         max_hdm = self.args["Quantification"]["Maximum Display HDM"],
         sat_ratio = self.args["Quantification"]["Contrast Enhancement"]
         dark_line = self.args["Detection"]["Dark Line"]
         hdm = HDM(max_hdm=max_hdm, sat_ratio=sat_ratio, dark_line=dark_line)
         hdm.quantify_black_space(self.eligible_dir, self.hdm_dir, ext=".png")
         self.df_stats = hdm.df_hdm
+        # HDM loops internally; emit a coarse tick batch covering the whole stage.
+        self._tick(n_elig)
 
     def quantify_images(self):
         if len(glob(join_path(self.roi_dir, '*.png'))) > 0:
@@ -407,6 +433,7 @@ class BatchCabana:
             mask = cv2.imread(mask_path)
             visualize_fibres(img, mask,
                              join_path(self.fibre_dir, os.path.splitext(img_name)[0] + '_fibres.png'), thickness)
+            self._tick()
 
     def calc_fibre_areas(self):
         img_paths = glob(join_path(self.bin_dir, '*.png'))
@@ -424,6 +451,7 @@ class BatchCabana:
                 area_roi = np.sum(img_mask > 128).astype(float)  # ROI area
                 if area_roi == 0:
                     writer.writerow([0] * 8)
+                    self._tick()
                     continue
                 percent_roi = area_roi / img_mask.shape[0] / img_mask.shape[1]  # % ROI area
                 name = os.path.basename(img_path)
@@ -461,6 +489,7 @@ class BatchCabana:
                 data = [name, area_roi, percent_roi, area_width, percent_width,
                         mean_intensity_roi, mean_intensity_width, mean_intensity_hdm]
                 writer.writerow(data)
+                self._tick()
 
             Log.logger.info('Areas have been saved in {}'.format(join_path(self.bin_dir, 'ResultsROI.csv')))
 
@@ -550,6 +579,7 @@ class BatchCabana:
                         'Y': final_circles[:, 0]}
                 df = pd.DataFrame(data)
                 df.to_csv(join_path(gap_result_dir, "IndividualGaps_" + os.path.splitext(img_name)[0] + ".csv"), index=False)
+                self._tick()
 
             if len(names) > 0:
                 data = {'Image': names,
@@ -574,6 +604,7 @@ class BatchCabana:
             base_name = os.path.basename(img_path)[:-9]
             csv_file_path = join_path(gap_result_dir, 'IndividualGaps_' + base_name + '_roi.csv')
             if not os.path.exists(csv_file_path):
+                self._tick()
                 continue
 
             df_circles = pd.read_csv(csv_file_path)
@@ -615,6 +646,8 @@ class BatchCabana:
                 for lst in [means, stds, pct5, medians, pct95, means_radius, stds_radius,
                             pct5_radius, medians_radius, pct95_radius, counts]:
                     lst.append(0)
+
+            self._tick()
 
         if names:
             data = {'Image': names,
@@ -984,6 +1017,7 @@ class BatchCabana:
                     curve_name_wo_ext = os.path.basename(curve_path)[:-4]
                     suffix = curve_name_wo_ext[len(name_wo_ext + "_Curve_Map"):]
                     iio.imwrite(join_path(self.color_dir, name_wo_ext, name_wo_ext + "_color_curve" + suffix + ".png"), np.zeros_like(rgb_img))
+                self._tick()
                 continue
 
             mask_img = np.repeat(mask_img[:, :, np.newaxis], 3, axis=2)
@@ -1041,10 +1075,22 @@ class BatchCabana:
                 shutil.copy(join_path(self.export_dir, name_wo_ext, name_wo_ext + "_GapImage_intra_gaps.png"),
                             join_path(self.color_dir, name_wo_ext, name_wo_ext + "_intra_gaps.png"))
 
+            self._tick()
+
     def run(self):
         self.initialize_params()
         self.remove_large_images()
-        if len(get_img_paths(self.eligible_dir)) == 0:
+
+        n_eligible = len(get_img_paths(self.eligible_dir))
+        n_input = len(get_img_paths(self.input_folder))
+
+        # Pre-compute the per-image tick budget for this batch so _tick() can
+        # report a meaningful 0..1 fraction. Each per-image loop in run()
+        # contributes one tick per iteration; HDM is coarse-grained.
+        self._progress_done = 0
+        self._progress_total = self._estimate_progress_total(n_eligible, n_input)
+
+        if n_eligible == 0:
             Log.logger.warning("No eligible images found. No further analysis will be conducted.")
         else:
             self.generate_rois()
@@ -1060,6 +1106,38 @@ class BatchCabana:
                 self.generate_color_maps()
             else:
                 Log.logger.info('Segmentation is done. No further analysis will be conducted.')
+
+        # Always finish on 1.0 so the host can advance the bar past this batch
+        # even when the estimate above is approximate.
+        if self.progress_callback:
+            self.progress_callback(1.0)
+
+    def _estimate_progress_total(self, n_eligible, n_input):
+        """Sum the expected number of per-image ticks emitted by run().
+
+        Each per-image loop in this BatchCabana contributes one tick per
+        iteration; HDM emits a single coarse batch of ``n_eligible`` ticks.
+        The estimate is conservative: it can drift from the real count if
+        per-image loops short-circuit, but :func:`_tick` clamps the fraction
+        at 1.0 and ``run`` always finishes by emitting 1.0.
+        """
+        ticks = 0
+        if n_eligible == 0:
+            return 1
+        # generate_rois iterates all input images of this batch
+        ticks += n_input
+        if self.args["Configs"]["Quantification"]:
+            ticks += n_eligible          # quantify_hdm (coarse)
+            ticks += n_eligible          # detect_fibres
+            ticks += n_eligible          # quantify_skeletons
+            ticks += n_eligible          # analyze_orientations
+            ticks += n_input             # visualize_fibres
+            ticks += n_eligible          # calc_fibre_areas
+            if self.args["Configs"]["Gap Analysis"]:
+                ticks += n_eligible      # analyze_all_gaps
+                ticks += n_eligible      # analyze_intra_gaps
+            ticks += n_eligible          # generate_color_maps
+        return max(1, ticks)
 
 class BatchProcessor():
     """
@@ -1126,6 +1204,7 @@ class BatchProcessor():
         self.input_folder = input_folder
         self.output_folder = output_folder
         self.progress_callback = None  # Add a callback for progress updates
+        self._last_progress = 0  # Monotonicity guard for update_progress
 
         # Validate inputs
         if not os.path.exists(self.param_file):
@@ -1161,15 +1240,27 @@ class BatchProcessor():
         Update the progress callback if available.
 
         This method allows external code to monitor the processing progress
-        by calling the registered progress_callback function.
+        by calling the registered progress_callback function. The value is
+        coerced to an integer in [0, 100] and is monotone non-decreasing —
+        callers can pass float values without worrying about the int signal
+        type, and out-of-order updates are dropped instead of reversing the
+        bar.
 
         Parameters:
         ----------
-        value : int
+        value : int or float
             Progress value (0-100)
         """
+        try:
+            ivalue = int(round(float(value)))
+        except (TypeError, ValueError):
+            return
+        ivalue = max(0, min(100, ivalue))
+        if ivalue <= self._last_progress:
+            return
+        self._last_progress = ivalue
         if self.progress_callback:
-            self.progress_callback(value)
+            self.progress_callback(ivalue)
 
     def process(self):
         """
@@ -1253,6 +1344,22 @@ class BatchProcessor():
         start_batch_idx = self.batch_num + 1 if self.resume else 0
         end_batch_idx = len(path_batches)
 
+        # Per-image weighting for the 5-85 progress span. Using cumulative image
+        # counts (rather than batch_idx / N_batches) keeps the bar advancing
+        # smoothly even when the final batch is partial, and lets BatchCabana
+        # report sub-batch progress as a fraction.
+        process_span_start = 5
+        process_span_end = 85
+        process_span = process_span_end - process_span_start
+        total_images = sum(len(b) for b in path_batches) or 1
+        images_done = sum(len(path_batches[i]) for i in range(min(start_batch_idx, end_batch_idx)))
+
+        # If resuming, advance the bar to the resumed position immediately so
+        # the user sees where the run is starting rather than the stale 5%.
+        if start_batch_idx > 0:
+            self.update_progress(process_span_start
+                                 + (images_done / total_images) * process_span)
+
         # Process each batch
         for batch_idx in range(start_batch_idx, end_batch_idx):
             Log.logger.info(f'Processing batch {batch_idx + 1}/{end_batch_idx} '
@@ -1264,9 +1371,18 @@ class BatchProcessor():
             batch_folder = join_path(self.output_folder, 'Batches', 'batch_' + str(batch_idx))
             Path(batch_folder).mkdir(parents=True, exist_ok=True)
 
+            batch_images = len(path_batches[batch_idx])
+            batch_start_done = images_done
+
+            def on_batch_progress(frac, _start=batch_start_done, _n=batch_images):
+                # frac is the 0..1 fraction of THIS batch's per-image ticks completed
+                global_frac = (_start + _n * frac) / total_images
+                self.update_progress(process_span_start + global_frac * process_span)
+
             # Process batch with BatchCabana
             batch_cabana = BatchCabana(self.param_file, self.input_folder,
-                                  batch_folder, self.batch_size, batch_idx, self.ignore_large)
+                                  batch_folder, self.batch_size, batch_idx, self.ignore_large,
+                                  progress_callback=on_batch_progress)
             batch_cabana.run()
 
             # Update checkpoint file with completed batch
@@ -1276,9 +1392,11 @@ class BatchProcessor():
             with open(join_path(self.output_folder, '.CheckPoint.txt'), 'w') as ckpt:
                 ckpt.writelines(lines)
 
-            # Calculate and report progress (scale from 5-85%)
-            progress = int(5 + (batch_idx + 1) / end_batch_idx * 80)
-            self.update_progress(progress)
+            # Lock in this batch's endpoint regardless of how many ticks BatchCabana
+            # actually emitted (skipped stages, missing files, etc.).
+            images_done += batch_images
+            self.update_progress(process_span_start
+                                 + (images_done / total_images) * process_span)
 
     def post_process(self):
         """
@@ -1303,8 +1421,14 @@ class BatchProcessor():
 
         Log.logger.info('Putting together everything.')
 
-        # Start post-processing progress tracking
-        self.update_progress(86)
+        # Start post-processing progress tracking. We start at 85 (the same
+        # value process() emits when the final batch finishes) so the bar does
+        # not visibly pause during the gap between batch processing and
+        # post-processing — bulk file copies happen in this span.
+        post_span_start = 85
+        post_span_end = 99
+        post_span = post_span_end - post_span_start
+        self.update_progress(post_span_start)
 
         # Calculate the total number of steps for tracking progress
         total_steps = 9  # 1 for folders creation + 5 for file operations + 3 for final operations
@@ -1316,7 +1440,7 @@ class BatchProcessor():
             create_folder(join_path(self.output_folder, sub_folder, ""))
         create_folder(join_path(self.output_folder, "Masks", "GapAnalysis"))
         current_step += 1
-        self.update_progress(86 + (current_step / total_steps) * 13)
+        self.update_progress(post_span_start + (current_step / total_steps) * post_span)
 
         # Step 2: Copy images from batches to consolidated folders
         for batch_idx in range(self.batch_num + 1):
@@ -1331,7 +1455,7 @@ class BatchProcessor():
                 for img_path in img_paths:
                     shutil.copy(img_path, dst_folder)
         current_step += 1
-        self.update_progress(86 + (current_step / total_steps) * 13)
+        self.update_progress(post_span_start + (current_step / total_steps) * post_span)
 
         # Step 3: Copy gap analysis results
         for batch_idx in range(self.batch_num + 1):
@@ -1343,7 +1467,7 @@ class BatchProcessor():
             for img_path in img_paths:
                 shutil.copy(img_path, dst_folder)
         current_step += 1
-        self.update_progress(86 + (current_step / total_steps) * 13)
+        self.update_progress(post_span_start + (current_step / total_steps) * post_span)
 
         # Step 4: Copy subdirectories from Exports and Colors
         for batch_idx in range(self.batch_num + 1):
@@ -1360,7 +1484,7 @@ class BatchProcessor():
                 shutil.copytree(join_path(batch_folder, "Colors", folder),
                                 join_path(self.output_folder, "Colors", folder), dirs_exist_ok=True)
         current_step += 1
-        self.update_progress(86 + (current_step / total_steps) * 13)
+        self.update_progress(post_span_start + (current_step / total_steps) * post_span)
 
         # Step 5: Merge list of ignored images
         ignored_images = []
@@ -1373,7 +1497,7 @@ class BatchProcessor():
         with open(join_path(self.output_folder, 'Eligible', 'IgnoredImages.txt'), 'w') as f:
             f.writelines(ignored_images)
         current_step += 1
-        self.update_progress(86 + (current_step / total_steps) * 13)
+        self.update_progress(post_span_start + (current_step / total_steps) * post_span)
 
         # Step 6: Merge ROI results
         roi_df = []
@@ -1385,7 +1509,7 @@ class BatchProcessor():
             merged_df = pd.concat(roi_df, ignore_index=True)
             merged_df.to_csv(join_path(self.output_folder, 'Bins', 'ResultsROI.csv'), index=False)
         current_step += 1
-        self.update_progress(86 + (current_step / total_steps) * 13)
+        self.update_progress(post_span_start + (current_step / total_steps) * post_span)
 
         # Step 7: Merge HDM results
         hdm_df = []
@@ -1398,7 +1522,7 @@ class BatchProcessor():
             merged_df = pd.concat(hdm_df, ignore_index=True)
             merged_df.to_csv(join_path(self.output_folder, 'HDM', 'ResultsHDM.csv'), index=False)
         current_step += 1
-        self.update_progress(86 + (current_step / total_steps) * 13)
+        self.update_progress(post_span_start + (current_step / total_steps) * post_span)
 
         # Step 8: Merge gap analysis summaries
         # Merge regular gap analysis summary
@@ -1427,7 +1551,7 @@ class BatchProcessor():
             merged_df.to_csv(
                 join_path(self.output_folder, 'Masks', 'GapAnalysis', 'IntraGapAnalysisSummary.csv'), index=False)
         current_step += 1
-        self.update_progress(86 + (current_step / total_steps) * 13)
+        self.update_progress(post_span_start + (current_step / total_steps) * post_span)
 
         # Step 9: Merge quantification results
         results_df = []
