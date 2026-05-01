@@ -167,13 +167,14 @@ def compute_scores(agg_df, output_path):
         std = series.std(ddof=0)
         return np.where(std == 0, 0.0, (series - series.mean()) / std)
 
-    # Column mapping
+    EPS = 1e-6
+
+    # Column mapping (fractal dimension not used in final score formulas)
     col_map = {
         'thickness': 'Avg Thickness (WIDTH, µm) MEAN',
         'alignment': 'Orient. Alignment (WIDTH) MEAN',
         'coverage': 'Fibre Coverage (WIDTH/ROI) MEAN',
         'endpoint_density': 'Endpoints Density (µm⁻¹) MEAN',
-        'fractal_dim': 'Box-Counting Fractal Dimension MEAN',
     }
 
     # Check required columns exist
@@ -187,9 +188,8 @@ def compute_scores(agg_df, output_path):
     alignment = agg_df[col_map['alignment']].astype(float)
     coverage = agg_df[col_map['coverage']].astype(float)
     endpoint_density = agg_df[col_map['endpoint_density']].astype(float)
-    fractal_dim = agg_df[col_map['fractal_dim']].astype(float)
 
-    # Curvature: mean of all Curvature (win_sz=X) MEAN columns
+    # κ_ms: mean of all Curvature (win_sz=X) MEAN columns
     curvature_cols = [c for c in agg_df.columns if 'Curvature' in c and c.endswith('MEAN')]
     if curvature_cols:
         curvature = agg_df[curvature_cols].astype(float).mean(axis=1)
@@ -197,17 +197,18 @@ def compute_scores(agg_df, output_path):
         logger.warning("No curvature columns found. Setting curvature to 0.")
         curvature = pd.Series(0.0, index=agg_df.index)
 
-    # Z-score each variable
-    z_thickness = z_score(thickness)
-    z_alignment = z_score(alignment)
-    z_coverage = z_score(coverage)
-    z_endpoint = z_score(endpoint_density)
-    z_fractal = z_score(fractal_dim)
-    z_curvature = z_score(curvature)
+    # Z-score with log transforms per spec:
+    # R* = z(log(T+ε)) - z(log(κ_ms+ε)) + z(A) + z(log(C+ε)) - z(E)
+    # B* = z(log(T+ε)) + z(A) + z(log(C+ε)) - z(E)
+    z_log_thickness = z_score(np.log(thickness + EPS))
+    z_alignment     = z_score(alignment)
+    z_log_coverage  = z_score(np.log(coverage + EPS))
+    z_endpoint      = z_score(endpoint_density)
+    z_log_curvature = z_score(np.log(curvature + EPS))
 
     # Compute scores
-    rigidity = z_thickness - z_curvature + z_alignment + z_coverage - z_endpoint
-    bundling = z_thickness + z_alignment + z_coverage + z_fractal - z_endpoint
+    rigidity = z_log_thickness - z_log_curvature + z_alignment + z_log_coverage - z_endpoint
+    bundling = z_log_thickness + z_alignment + z_log_coverage - z_endpoint
 
     # Build output DataFrame
     meta_cols = ['Patient', 'No. of ROIs', 'Image Type', 'Tissue Type']
