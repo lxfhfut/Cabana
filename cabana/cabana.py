@@ -199,8 +199,7 @@ class Cabana:
         result = detect_one_image(det, img_path,
                                   mask_dir=self.mask_dir,
                                   export_subdir=self.export_img_dir,
-                                  color_subdir=self.color_img_dir,
-                                  artifact_stem=self.name_wo_ext)
+                                  color_subdir=self.color_img_dir)
         self.contour_img = result['contour_img']
         self.width_img = result['width_img']
 
@@ -212,10 +211,9 @@ class Cabana:
             roi_img_path=join_path(self.roi_dir, self.name_wo_ext + '_roi.png'),
             mask_roi_path=join_path(self.bin_dir, self.name_wo_ext + "_mask.png"),
             mask_hdm_path=join_path(self.hdm_dir, self.name_wo_ext + "_roi.png"),
-            mask_width_path=join_path(self.export_img_dir, self.name_wo_ext + "_Width.png"),
+            mask_width_path=join_path(self.export_img_dir, "Width.png"),
             export_subdir=self.export_img_dir,
             color_subdir=self.color_img_dir,
-            artifact_stem=self.name_wo_ext,
         )
         for k, v in metrics.items():
             self.stats.loc[0, k] = v
@@ -239,7 +237,6 @@ class Cabana:
             skel_analyzer,
             mask_path=join_path(self.mask_dir, self.name_wo_ext + '_roi.png'),
             export_subdir=self.export_img_dir,
-            artifact_stem=self.name_wo_ext,
             ims_res=self.ims_res,
             curve_windows=curve_windows_from_args(self.args),
         )
@@ -335,7 +332,7 @@ class Cabana:
 
         # Save images
         cv2.imwrite(join_path(gap_result_dir, self.name_wo_ext + "_GapImage.png"), final_result)
-        cv2.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_GapImage.png"), color_result)
+        cv2.imwrite(join_path(self.export_img_dir, "GapImage.png"), color_result)
 
         # Calculate gap metrics
         from .stages import summary_stats
@@ -400,7 +397,7 @@ class Cabana:
 
         # Save images
         cv2.imwrite(join_path(gap_result_dir, self.name_wo_ext + "_GapImage_intra_gaps.png"), color_img_fibre)
-        cv2.imwrite(join_path(self.export_img_dir, self.name_wo_ext + "_GapImage_intra_gaps.png"), color_img)
+        cv2.imwrite(join_path(self.export_img_dir, "GapImage_intra_gaps.png"), color_img)
 
         from .stages import summary_stats
         areas = np.array(areas)
@@ -419,7 +416,7 @@ class Cabana:
         metrics = compute_fibre_areas(
             img_mask_path=join_path(self.bin_dir, self.name_wo_ext + '_mask.png'),
             ori_img_path=join_path(self.eligible_dir, self.name_wo_ext + ".png"),
-            width_mask_path=join_path(self.export_img_dir, self.name_wo_ext + "_Width.png"),
+            width_mask_path=join_path(self.export_img_dir, "Width.png"),
             hdm_mask_path=join_path(self.hdm_dir, self.name_wo_ext + '_roi.png'),
         )
         for k, v in metrics.items():

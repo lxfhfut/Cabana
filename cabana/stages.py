@@ -176,7 +176,7 @@ def build_fibre_detector(args):
 
 
 def detect_one_image(det, roi_img_path, mask_dir, export_subdir, color_subdir,
-                     mask_filename=None, artifact_stem=None):
+                     mask_filename=None):
     """Run detection on one ROI image and write the standard artifacts.
 
     Parameters
@@ -193,11 +193,6 @@ def detect_one_image(det, roi_img_path, mask_dir, export_subdir, color_subdir,
     mask_filename : str, optional
         Filename for the mask file written to ``mask_dir``. Defaults to the
         basename of ``roi_img_path``.
-    artifact_stem : str, optional
-        Filename stem used for files written into ``export_subdir`` and
-        ``color_subdir``. Defaults to ``mask_filename`` without extension.
-        Cabana passes the original image stem (no ``_roi`` suffix);
-        BatchCabana passes the roi-image stem.
 
     Returns
     -------
@@ -209,17 +204,16 @@ def detect_one_image(det, roi_img_path, mask_dir, export_subdir, color_subdir,
     contour_img, width_img, binary_contours, binary_widths, int_width_img = det.get_results()
 
     base = mask_filename or os.path.basename(roi_img_path)
-    stem = artifact_stem if artifact_stem is not None else os.path.splitext(base)[0]
 
     Path(export_subdir).mkdir(parents=True, exist_ok=True)
     Path(color_subdir).mkdir(parents=True, exist_ok=True)
 
     iio.imwrite(join_path(mask_dir, base), binary_contours)
-    iio.imwrite(join_path(export_subdir, stem + "_Mask.png"), binary_contours)
-    iio.imwrite(join_path(export_subdir, stem + "_Width.png"), binary_widths)
-    iio.imwrite(join_path(color_subdir, stem + "_color_mask.png"), contour_img)
-    iio.imwrite(join_path(color_subdir, stem + "_color_width.png"), width_img)
-    iio.imwrite(join_path(color_subdir, stem + "_gray_width.png"), int_width_img)
+    iio.imwrite(join_path(export_subdir, "Mask.png"), binary_contours)
+    iio.imwrite(join_path(export_subdir, "Width.png"), binary_widths)
+    iio.imwrite(join_path(color_subdir, "color_mask.png"), contour_img)
+    iio.imwrite(join_path(color_subdir, "color_width.png"), width_img)
+    iio.imwrite(join_path(color_subdir, "gray_width.png"), int_width_img)
 
     return {
         'contour_img': contour_img,
@@ -253,7 +247,7 @@ def curve_windows_from_args(args):
     )
 
 
-def quantify_one_skeleton(skel_analyzer, mask_path, export_subdir, artifact_stem,
+def quantify_one_skeleton(skel_analyzer, mask_path, export_subdir,
                           ims_res, curve_windows):
     """Analyze one fibre-mask image; return metrics + curve maps + key images.
 
@@ -284,17 +278,15 @@ def quantify_one_skeleton(skel_analyzer, mask_path, export_subdir, artifact_stem
     }
 
     Path(export_subdir).mkdir(parents=True, exist_ok=True)
-    iio.imwrite(join_path(export_subdir, f"{artifact_stem}_Skeleton.png"),
-                skel_analyzer.key_pts_image)
-    iio.imwrite(join_path(export_subdir, f"{artifact_stem}_Length_Map.tif"),
-                skel_analyzer.length_map_all)
+    iio.imwrite(join_path(export_subdir, "Skeleton.png"), skel_analyzer.key_pts_image)
+    iio.imwrite(join_path(export_subdir, "Length_Map.tif"), skel_analyzer.length_map_all)
 
     curve_maps = {}
     for win_sz in curve_windows:
         skel_analyzer.calc_curve_all(win_sz)
         metrics[f"Curvature (win_sz={win_sz})"] = skel_analyzer.avg_curve_all
         curve_maps[int(win_sz)] = skel_analyzer.curve_map_all
-        iio.imwrite(join_path(export_subdir, f"{artifact_stem}_Curve_Map_{win_sz}.tif"),
+        iio.imwrite(join_path(export_subdir, f"Curve_Map_{win_sz}.tif"),
                     skel_analyzer.curve_map_all)
 
     return metrics, curve_maps, skel_analyzer.key_pts_image, skel_analyzer.length_map_all
@@ -302,7 +294,7 @@ def quantify_one_skeleton(skel_analyzer, mask_path, export_subdir, artifact_stem
 
 def analyze_one_orientation(orient_analyzer, roi_img_path, mask_roi_path,
                             mask_hdm_path, mask_width_path,
-                            export_subdir, color_subdir, artifact_stem):
+                            export_subdir, color_subdir):
     """Compute orientation metrics + write artifacts for one ROI image.
 
     Returns ``(metrics_dict, images_dict)``. When the ROI mask is empty,
@@ -316,9 +308,9 @@ def analyze_one_orientation(orient_analyzer, roi_img_path, mask_roi_path,
     if np.sum(mask_roi) == 0:
         empty = np.zeros_like(mask_roi)
         for name in ("Energy", "Coherency", "Orientation", "Color_Survey"):
-            iio.imwrite(join_path(export_subdir, f"{artifact_stem}_{name}.tif"), empty)
+            iio.imwrite(join_path(export_subdir, f"{name}.tif"), empty)
         for name in ("orient_vf", "angular_hist"):
-            iio.imwrite(join_path(color_subdir, f"{artifact_stem}_{name}.png"), empty)
+            iio.imwrite(join_path(color_subdir, f"{name}.png"), empty)
         return dict.fromkeys(ORIENT_METRICS, 0), {}
 
     mask_hdm = (iio.imread(mask_hdm_path) > 0).astype(np.uint8) * 255
@@ -346,11 +338,11 @@ def analyze_one_orientation(orient_analyzer, roi_img_path, mask_roi_path,
         'angular_hist': orient_analyzer.draw_angular_hist(mask=mask_roi),
     }
 
-    iio.imwrite(join_path(export_subdir, f"{artifact_stem}_Energy.tif"), images['energy'])
-    iio.imwrite(join_path(export_subdir, f"{artifact_stem}_Coherency.tif"), images['coherency'])
-    iio.imwrite(join_path(export_subdir, f"{artifact_stem}_Orientation.tif"), images['orientation'])
-    iio.imwrite(join_path(export_subdir, f"{artifact_stem}_Color_Survey.tif"), images['color_survey'])
-    iio.imwrite(join_path(color_subdir, f"{artifact_stem}_orient_vf.png"), images['vector_field'])
-    iio.imwrite(join_path(color_subdir, f"{artifact_stem}_angular_hist.png"), images['angular_hist'])
+    iio.imwrite(join_path(export_subdir, "Energy.tif"), images['energy'])
+    iio.imwrite(join_path(export_subdir, "Coherency.tif"), images['coherency'])
+    iio.imwrite(join_path(export_subdir, "Orientation.tif"), images['orientation'])
+    iio.imwrite(join_path(export_subdir, "Color_Survey.tif"), images['color_survey'])
+    iio.imwrite(join_path(color_subdir, "orient_vf.png"), images['vector_field'])
+    iio.imwrite(join_path(color_subdir, "angular_hist.png"), images['angular_hist'])
 
     return metrics, images
