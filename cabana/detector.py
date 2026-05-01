@@ -844,19 +844,17 @@ class FibreDetector:
         if self.min_len <= 0:
             return
 
-        id_remove = []
+        id_remove = set()
         conts = []
-        for i in range(len(self.contours)):
-            cont_len = self.contours[i].estimate_length()
+        for i, cont in enumerate(self.contours):
+            cont_len = cont.estimate_length()
             if cont_len < self.min_len or (0 < self.max_len < cont_len):
-                id_remove.append(self.contours[i].id)
+                id_remove.add(i)
             else:
-                conts.append(self.contours[i])
+                conts.append(cont)
 
-        juncs = []
-        for junc in self.junctions:
-            if junc.cont1 not in id_remove and junc.cont2 not in id_remove:
-                juncs.append(junc)
+        juncs = [j for j in self.junctions
+                 if j.cont1 not in id_remove and j.cont2 not in id_remove]
 
         self.contours = conts
         self.junctions = juncs
