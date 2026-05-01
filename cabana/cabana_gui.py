@@ -14,7 +14,8 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QSpinBox,
                              QMessageBox, QGroupBox, QComboBox, QWidget,
                              QStatusBar, QLineEdit)
 from PyQt5.QtGui import QIcon, QPalette, QFont
-from PyQt5.QtCore import QSettings
+from PyQt5.QtCore import QSettings, QUrl
+from PyQt5.QtGui import QDesktopServices
 
 from .ui import *
 from .themes import THEMES, DEFAULT_THEME
@@ -435,12 +436,22 @@ class MainWindow(QMainWindow):
         options_layout.addStretch()
         layout.addLayout(options_layout)
 
-        # Batch processing button
+        # Batch processing / cancel buttons (share the same row)
+        batch_btn_layout = QHBoxLayout()
+
         self.process_batch_btn = QPushButton("Process Batch")
         self.process_batch_btn.clicked.connect(self.run_batch_processing)
         self.process_batch_btn.setEnabled(False)
         self.process_batch_btn.setStyleSheet(self.primary_btn_style)
-        layout.addWidget(self.process_batch_btn)
+        batch_btn_layout.addWidget(self.process_batch_btn)
+
+        self.cancel_batch_btn = QPushButton("Cancel")
+        self.cancel_batch_btn.clicked.connect(self._cancel_batch_processing)
+        self.cancel_batch_btn.setVisible(False)
+        self.cancel_batch_btn.setStyleSheet(self.btn_style)
+        batch_btn_layout.addWidget(self.cancel_batch_btn)
+
+        layout.addLayout(batch_btn_layout)
 
         layout.addStretch()
         self.bat_tab.setLayout(layout)
@@ -551,9 +562,11 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'param_file') or not hasattr(self, 'input_folder') or not hasattr(self, 'output_folder'):
             return
 
-        # Disable all buttons during processing
-        self.process_batch_btn.setEnabled(False)
-        self.process_batch_btn.setText("Processing...")
+        # Disable inputs during processing; show Cancel button
+        self.process_batch_btn.setVisible(False)
+        self.cancel_batch_btn.setVisible(True)
+        self.cancel_batch_btn.setEnabled(True)
+        self.cancel_batch_btn.setText("Cancel")
         self.param_btn.setEnabled(False)
         self.input_btn.setEnabled(False)
         self.output_btn.setEnabled(False)
@@ -577,29 +590,60 @@ class MainWindow(QMainWindow):
         # Connect signals
         self.batch_worker.progress_updated.connect(lambda value: self.progress_bar.setValue(value))
         self.batch_worker.batch_complete.connect(self.handle_batch_complete)
+        self.batch_worker.batch_cancelled.connect(self.handle_batch_cancelled)
 
         # Start the worker thread
         self.batch_worker.start()
 
-    def handle_batch_complete(self):
-        """Handle the completed batch processing"""
-        # Hide progress bar
-        self.hide_progress_bar()
-
-        # Re-enable buttons
+    def _restore_batch_buttons(self):
+        self.cancel_batch_btn.setVisible(False)
+        self.process_batch_btn.setVisible(True)
         self.process_batch_btn.setEnabled(True)
-        self.process_batch_btn.setText("Process Batch")
         self.param_btn.setEnabled(True)
         self.input_btn.setEnabled(True)
         self.output_btn.setEnabled(True)
         self.stats_cb.setEnabled(True)
         self.scores_cb.setEnabled(True)
 
-        # # Show a message box to notify the user
-        # QMessageBox.information(
-        #     self, "Batch Processing Complete",
-        #     "Batch processing has been completed successfully."
-        # )
+    def _cancel_batch_processing(self):
+        self.cancel_batch_btn.setEnabled(False)
+        self.cancel_batch_btn.setText("Cancelling…")
+        if hasattr(self, 'batch_worker'):
+            self.batch_worker.cancel()
+
+    def handle_batch_complete(self):
+        self.hide_progress_bar()
+        self._restore_batch_buttons()
+
+        output_folder = getattr(self, 'output_folder', '')
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Batch Processing Complete")
+        msg.setText("Batch processing finished successfully.")
+        msg.setInformativeText(f"Results saved to:\n{output_folder}")
+        msg.setStyleSheet(self.msgbox_style)
+        open_btn = msg.addButton("Open Folder", QMessageBox.ActionRole)
+        msg.addButton(QMessageBox.Ok)
+        msg.exec_()
+        if msg.clickedButton() == open_btn:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(output_folder))
+
+    def handle_batch_cancelled(self):
+        self.hide_progress_bar()
+        self._restore_batch_buttons()
+
+        output_folder = getattr(self, 'output_folder', '')
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Batch Processing Cancelled")
+        msg.setText("Batch processing was cancelled.")
+        msg.setInformativeText(
+            f"Partial results and a checkpoint are saved in:\n{output_folder}\n\n"
+            "You can resume from where you left off next time.")
+        msg.setStyleSheet(self.msgbox_style)
+        open_btn = msg.addButton("Open Folder", QMessageBox.ActionRole)
+        msg.addButton(QMessageBox.Ok)
+        msg.exec_()
+        if msg.clickedButton() == open_btn:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(output_folder))
 
     def setup_segmentation_tab(self):
         """Set up the segmentation tab UI"""
@@ -1648,7 +1692,7 @@ class MainWindow(QMainWindow):
 
         # Buttons
         for btn in (self.load_btn, self.reload_btn, self.load_params_btn, self.export_btn,
-                     self.param_btn, self.input_btn, self.output_btn):
+                     self.param_btn, self.input_btn, self.output_btn, self.cancel_batch_btn):
             btn.setStyleSheet(self.btn_style)
 
         # Primary buttons

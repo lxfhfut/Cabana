@@ -478,6 +478,7 @@ class PercentageProgressBar(QProgressBar):
 class BatchProcessingWorker(QThread):
     progress_updated = pyqtSignal(int)
     batch_complete = pyqtSignal()
+    batch_cancelled = pyqtSignal()
 
     def __init__(self, param_file, input_folder, output_folder, batch_size=5,
                  batch_num=0, resume=False, ignore_large=False,
@@ -492,22 +493,27 @@ class BatchProcessingWorker(QThread):
         self.ignore_large = ignore_large
         self.generate_stats = generate_stats
         self.generate_scores = generate_scores
+        self._cancel_requested = False
+
+    def cancel(self):
+        self._cancel_requested = True
 
     def run(self):
         self.progress_updated.emit(1)
-        # Initialize the batch processor with our parameters
         batch_processor = BatchProcessor(self.param_file, self.input_folder,
                                          self.output_folder, self.batch_size,
                                          self.batch_num, self.resume, self.ignore_large,
                                          self.generate_stats, self.generate_scores)
 
-        # Connect to our progress signal
         batch_processor.progress_callback = self.update_progress
+        batch_processor.cancel_check = lambda: self._cancel_requested
 
-        # Run the batch processing
-        batch_processor.run()
-        self.progress_updated.emit(100)
-        self.batch_complete.emit()
+        was_cancelled = batch_processor.run()
+        if was_cancelled:
+            self.batch_cancelled.emit()
+        else:
+            self.progress_updated.emit(100)
+            self.batch_complete.emit()
 
     def update_progress(self, value):
         self.progress_updated.emit(value)

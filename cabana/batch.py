@@ -1044,6 +1044,7 @@ class BatchProcessor():
         self.input_folder = input_folder
         self.output_folder = output_folder
         self.progress_callback = None  # Add a callback for progress updates
+        self.cancel_check = None       # Optional callable: returns True to request cancel
         self._last_progress = 0  # Monotonicity guard for update_progress
 
         # Validate inputs
@@ -1201,7 +1202,13 @@ class BatchProcessor():
                                  + (images_done / total_images) * process_span)
 
         # Process each batch
+        self._cancelled = False
         for batch_idx in range(start_batch_idx, end_batch_idx):
+            if self.cancel_check and self.cancel_check():
+                Log.logger.info('Batch processing cancelled by user.')
+                self._cancelled = True
+                break
+
             Log.logger.info(f'Processing batch {batch_idx + 1}/{end_batch_idx} '
                             f'of {len(path_batches[batch_idx])} images '
                             f'with resolution {res_batches[batch_idx]}um/pixel.')
@@ -1447,23 +1454,20 @@ class BatchProcessor():
         -------
         None
         """
-        # Record start time for performance tracking
         start_time = time.time()
 
-        # self.check_running_status()
-
-        # Process all batches
         self.process()
 
-        # Consolidate results
-        self.post_process()
+        if getattr(self, '_cancelled', False):
+            Log.logger.info('Processing stopped. Checkpoint preserved for resume.')
+            return True
 
-        # Final progress update
+        self.post_process()
         self.update_progress(100)
 
-        # Calculate and log total execution time
         time_secs = time.time() - start_time
         hours = time_secs // 3600
         minutes = (time_secs % 3600) // 60
         seconds = (time_secs % 3600) % 60
         Log.logger.info("--- Finished in {:.0f} hours {:.0f} mins {:.0f} seconds ---".format(hours, minutes, seconds))
+        return False
