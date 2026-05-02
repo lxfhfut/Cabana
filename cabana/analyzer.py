@@ -453,46 +453,6 @@ class SkeletonAnalyzer:
         num_neighbors = ndi.convolve((self.skel_image == self.FOREGROUND).astype(np.uint8),
                                      kernel, mode="constant")
 
-        height, width = self.skel_image.shape[:2]
-
-        # Helper function to get 3x3 neighborhood as binary matrix
-        def get_binary_3x3(img, row, col):
-            i1 = False if row - 1 < 0 or col - 1 < 0 else img[row - 1, col - 1] == self.FOREGROUND
-            i2 = False if row - 1 < 0 else img[row - 1, col] == self.FOREGROUND
-            i3 = False if row - 1 < 0 or col + 1 >= width else img[row - 1, col + 1] == self.FOREGROUND
-            i4 = False if col - 1 < 0 else img[row, col - 1] == self.FOREGROUND
-            i5 = True  # Center pixel (always foreground in this context)
-            i6 = False if col + 1 >= width else img[row, col + 1] == self.FOREGROUND
-            i7 = False if row + 1 >= height or col - 1 < 0 else img[row + 1, col - 1] == self.FOREGROUND
-            i8 = False if row + 1 >= height else img[row + 1, col] == self.FOREGROUND
-            i9 = False if row + 1 >= height or col + 1 >= width else img[row + 1, col + 1] == self.FOREGROUND
-            return np.array([[i1, i2, i3], [i4, i5, i6], [i7, i8, i9]])
-
-        # Define structural elements for endpoint detection
-        selems_2 = list()
-        selems_2.append(np.array([[0, 0, 1], [0, 1, 1], [0, 0, 0]]))
-        selems_2.append(np.array([[1, 0, 0], [1, 1, 0], [0, 0, 0]]))
-        selems_2 = [np.rot90(selems_2[i], k=j) for i in range(2) for j in range(4)]
-
-        # Define structural elements for branch point detection with 3 neighbors
-        selems_3 = list()
-        selems_3.append(np.array([[0, 1, 0], [1, 1, 1], [0, 0, 0]]))
-        selems_3.append(np.array([[1, 0, 1], [0, 1, 0], [1, 0, 0]]))
-        selems_3.append(np.array([[1, 0, 1], [0, 1, 0], [0, 1, 0]]))
-        selems_3.append(np.array([[0, 1, 0], [1, 1, 0], [0, 0, 1]]))
-        selems_3.append(np.array([[0, 0, 1], [1, 1, 0], [0, 0, 1]]))
-        selems_3 = [np.rot90(selems_3[i], k=j) for i in range(5) for j in range(4)]
-
-        # Define structural elements for branch point detection with 4 neighbors
-        selems_4 = selems_3.copy()
-        selems_4.append(np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]]))
-        selems_4.append(np.array([[1, 0, 1], [0, 1, 0], [1, 0, 1]]))
-        selems_tmp = list()
-        selems_tmp.append(np.array([[0, 0, 1], [1, 1, 0], [0, 1, 1]]))
-        selems_tmp.append(np.array([[0, 1, 0], [0, 1, 1], [1, 1, 0]]))
-        selems_tmp.append(np.array([[0, 1, 0], [1, 1, 1], [1, 0, 0]]))
-        selems_4.extend([np.rot90(selems_tmp[i], k=j) for i in range(3) for j in range(4)])
-
         self.pruned_image = self.skel_image.copy()
 
         # Process each connected component
@@ -504,37 +464,17 @@ class SkeletonAnalyzer:
             row_start, row_end = row_idx.min(), row_idx.max()
             col_start, col_end = col_idx.min(), col_idx.max()
 
-            # Find endpoints and branch points
+            # Find endpoints and branch points using neighbor count.
+            # skeletonize() produces 1-pixel-wide skeletons, so:
+            #   num_neighbors == 1  → endpoint
+            #   num_neighbors >= 3  → branch point
             endpoints, branchpoints = [], []
             for row in range(row_start, row_end + 1):
                 for col in range(col_start, col_end + 1):
                     if canvas[row, col] == self.FOREGROUND:
                         if num_neighbors[row, col] == 1:
-                            # Pixel with only one neighbor is definitely an endpoint
                             endpoints.append((row, col))
-                        elif num_neighbors[row, col] == 2:
-                            # Check if this is a special case endpoint with 2 neighbors
-                            binary = get_binary_3x3(self.skel_image, row, col)
-                            for selem in selems_2:
-                                if not np.logical_xor(binary, selem).any():
-                                    endpoints.append((row, col))
-                                    break
-                        elif num_neighbors[row, col] == 3:
-                            # Check if this is a branch point with 3 neighbors
-                            binary = get_binary_3x3(self.skel_image, row, col)
-                            for selem in selems_3:
-                                if not np.logical_xor(binary, selem).any():
-                                    branchpoints.append((row, col))
-                                    break
-                        elif num_neighbors[row, col] == 4:
-                            # Check if this is a branch point with 4 neighbors
-                            binary = get_binary_3x3(self.skel_image, row, col)
-                            for selem in selems_4:
-                                if not np.logical_xor(binary, selem).any():
-                                    branchpoints.append((row, col))
-                                    break
-                        elif num_neighbors[row, col] > 4:
-                            # Any pixel with more than 4 neighbors is a branch point
+                        elif num_neighbors[row, col] >= 3:
                             branchpoints.append((row, col))
 
             # Create a graph for this component
@@ -700,95 +640,23 @@ class SkeletonAnalyzer:
         The visualization is stored in self.pts_image.
         """
 
-        # Helper function to get 3x3 neighborhood as binary matrix
-        def get_binary_3x3(img, row, col):
-            """Extract a 3x3 binary neighborhood around a point as a boolean matrix."""
-            i1 = False if row - 1 < 0 or col - 1 < 0 else img[row - 1, col - 1] == self.FOREGROUND
-            i2 = False if row - 1 < 0 else img[row - 1, col] == self.FOREGROUND
-            i3 = False if row - 1 < 0 or col + 1 >= width else img[row - 1, col + 1] == self.FOREGROUND
-            i4 = False if col - 1 < 0 else img[row, col - 1] == self.FOREGROUND
-            i5 = True  # Center pixel is always foreground
-            i6 = False if col + 1 >= width else img[row, col + 1] == self.FOREGROUND
-            i7 = False if row + 1 >= height or col - 1 < 0 else img[row + 1, col - 1] == self.FOREGROUND
-            i8 = False if row + 1 >= height else img[row + 1, col] == self.FOREGROUND
-            i9 = False if row + 1 >= height or col + 1 >= width else img[row + 1, col + 1] == self.FOREGROUND
-            return np.array([[i1, i2, i3], [i4, i5, i6], [i7, i8, i9]])
-
-        # Kernel for counting neighbors
         kernel = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=np.uint8)
-
-        # Count the number of neighbors for each pixel
         num_neighbors = ndi.convolve((self.pruned_image == self.FOREGROUND).astype(np.uint8),
                                      kernel, mode="constant")
 
-        # Create a color image for visualization
         self.pts_image = np.repeat(self.pruned_image[:, :, None], 3, axis=2)
         height, width = self.pruned_image.shape[:2]
-        brh_pts_cnt = 0  # Branch points counter
-        end_pts_cnt = 0  # End points counter
+        brh_pts_cnt = 0
+        end_pts_cnt = 0
 
-        # Define structural elements for endpoint detection (2 neighbors)
-        selems_2 = list()
-        selems_2.append(np.array([[0, 0, 1], [0, 1, 1], [0, 0, 0]]))  # Corner pattern 1
-        selems_2.append(np.array([[1, 0, 0], [1, 1, 0], [0, 0, 0]]))  # Corner pattern 2
-        # Generate rotations of the structural elements for all possible orientations
-        selems_2 = [np.rot90(selems_2[i], k=j) for i in range(2) for j in range(4)]
-
-        # Define structural elements for branch point detection (3 neighbors)
-        selems_3 = list()
-        selems_3.append(np.array([[0, 1, 0], [1, 1, 1], [0, 0, 0]]))  # T-junction pattern
-        selems_3.append(np.array([[1, 0, 1], [0, 1, 0], [1, 0, 0]]))  # Diagonal pattern 1
-        selems_3.append(np.array([[1, 0, 1], [0, 1, 0], [0, 1, 0]]))  # Diagonal pattern 2
-        selems_3.append(np.array([[0, 1, 0], [1, 1, 0], [0, 0, 1]]))  # Corner pattern 1
-        selems_3.append(np.array([[0, 0, 1], [1, 1, 0], [0, 0, 1]]))  # Corner pattern 2
-        # Generate rotations for all possible orientations
-        selems_3 = [np.rot90(selems_3[i], k=j) for i in range(5) for j in range(4)]
-
-        # Define structural elements for branch point detection (4 neighbors)
-        selems_4 = selems_3.copy()
-        selems_4.append(np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]]))  # Cross pattern
-        selems_4.append(np.array([[1, 0, 1], [0, 1, 0], [1, 0, 1]]))  # X pattern
-        selems_tmp = np.array([[0, 0, 1], [1, 1, 0], [0, 1, 1]])  # Special corner pattern
-        selems_4.extend([np.rot90(selems_tmp, k=j) for j in range(4)])
-
-        # Scan all pixels and identify end points and branch points
         for row in range(height):
             for col in range(width):
                 if self.skel_image[row, col] == self.FOREGROUND:
-                    # Case 1: Pixel with only 1 neighbor is definitely an endpoint
                     if num_neighbors[row, col] == 1:
-                        cv2.circle(self.pts_image, (col, row), 3, (0, 255, 0), 2)  # Green circle for endpoint
+                        cv2.circle(self.pts_image, (col, row), 3, (0, 255, 0), 2)
                         end_pts_cnt += 1
-                    # Case 2: Special patterns with 2 neighbors that are endpoints
-                    elif num_neighbors[row, col] == 2:
-                        binary = get_binary_3x3(self.skel_image, row, col)
-                        for selem in selems_2:
-                            # If the pattern matches exactly (no logical differences)
-                            if not np.logical_xor(binary, selem).any():
-                                cv2.circle(self.pts_image, (col, row), 3, (0, 255, 0), 2)  # Green circle for endpoint
-                                end_pts_cnt += 1
-                                break
-                    # Case 3: Branch points with 3 neighbors in specific patterns
-                    elif num_neighbors[row, col] == 3:
-                        binary = get_binary_3x3(self.skel_image, row, col)
-                        for selem in selems_3:
-                            if not np.logical_xor(binary, selem).any():
-                                cv2.circle(self.pts_image, (col, row), 3, (255, 255, 0),
-                                           2)  # Yellow circle for branch point
-                                brh_pts_cnt += 1
-                                break
-                    # Case 4: Branch points with 4 neighbors in specific patterns
-                    elif num_neighbors[row, col] == 4:
-                        binary = get_binary_3x3(self.skel_image, row, col)
-                        for selem in selems_4:
-                            if not np.logical_xor(binary, selem).any():
-                                cv2.circle(self.pts_image, (col, row), 3, (255, 255, 0),
-                                           2)  # Yellow circle for branch point
-                                brh_pts_cnt += 1
-                                break
-                    # Case 5: Any pixel with more than 4 neighbors is definitely a branch point
-                    elif num_neighbors[row, col] > 4:
-                        cv2.circle(self.pts_image, (col, row), 3, (255, 255, 0), 2)  # Yellow circle for branch point
+                    elif num_neighbors[row, col] >= 3:
+                        cv2.circle(self.pts_image, (col, row), 3, (255, 255, 0), 2)
                         brh_pts_cnt += 1
 
         # Log the results
