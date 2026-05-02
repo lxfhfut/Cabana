@@ -124,6 +124,10 @@ class BatchCabana:
                     warnings.warn(f"Image {img_path} is 16-bit. Converting to 8-bit.")
                     lower = np.percentile(img, 2)
                     upper = np.percentile(img, 98)
+                    if upper <= lower:
+                        warnings.warn(f"Image {img_path} has no dynamic range. Skipping.")
+                        count_black += 1
+                        continue
                     img = np.clip(img, lower, upper)  # clip to 2nd and 98th percentile to remove outliers
 
                     # Scale to full 8-bit range
@@ -325,7 +329,7 @@ class BatchCabana:
                     hdm_mask_path=join_path(self.hdm_dir, roi_name),
                 )
                 if metrics['Area (ROI)'] == 0:
-                    writer.writerow([0] * (1 + len(FIBRE_AREA_METRICS)))
+                    writer.writerow([roi_name, *(0 for _ in FIBRE_AREA_METRICS)])
                 else:
                     writer.writerow([roi_name, *(metrics[k] for k in FIBRE_AREA_METRICS)])
                 self._tick()
@@ -404,6 +408,13 @@ class BatchCabana:
                 cv2.imwrite(join_path(gap_result_dir, os.path.splitext(img_name)[0] + "_GapImage.png"), final_result)
                 cv2.imwrite(join_path(self.export_dir, os.path.splitext(img_name)[0],
                                       "GapImage.png"), color_result)
+                if len(final_circles) == 0:
+                    names.append(img_name)
+                    for lst in (means, stds, percentile5, median, percentile95, counts,
+                                means_radius, stds_radius, pct5_radius, medians_radius, pct95_radius):
+                        lst.append(0)
+                    self._tick()
+                    continue
                 areas = np.pi * (np.array(final_circles)[:, 2] ** 2) * self.ims_res**2
                 radii = np.sqrt(areas / np.pi)
                 names.append(img_name)

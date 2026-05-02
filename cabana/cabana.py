@@ -127,6 +127,9 @@ class Cabana:
             warnings.warn(f"Image {self.input_image_path} is 16-bit. Converting to 8-bit.")
             lower = np.percentile(img, 2)
             upper = np.percentile(img, 98)
+            if upper <= lower:
+                warnings.warn(f"Image {self.input_image_path} has no dynamic range. Skipping.")
+                return
             img = np.clip(img, lower, upper)  # clip to 2nd and 98th percentile to remove outliers
             # Scale to full 8-bit range
             img = (((img - lower) / (upper - lower)) * 255.0).astype(np.uint8)
