@@ -279,7 +279,8 @@ def quantify_one_skeleton(skel_analyzer, mask_path, export_subdir,
 
     Path(export_subdir).mkdir(parents=True, exist_ok=True)
     iio.imwrite(join_path(export_subdir, "Skeleton.png"), skel_analyzer.key_pts_image)
-    iio.imwrite(join_path(export_subdir, "Length_Map.tif"), skel_analyzer.length_map_all)
+    iio.imwrite(join_path(export_subdir, "Length_Map.tif"),
+                (skel_analyzer.length_map_all * ims_res).astype(np.float32))
 
     curve_maps = {}
     for win_sz in curve_windows:
