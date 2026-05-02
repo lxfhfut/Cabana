@@ -346,6 +346,7 @@ class BatchCabana:
             Path(gap_result_dir).mkdir(parents=True, exist_ok=True)
             img_paths = glob(join_path(self.mask_dir, '*.png'))
             names, means, stds, percentile5, median, percentile95, counts = [], [], [], [], [], [], []
+            means_radius, stds_radius, pct5_radius, medians_radius, pct95_radius = [], [], [], [], []
             for img_path in img_paths:
                 img_name = os.path.basename(img_path)
                 min_gap_radius = min_gap_diameter / 2
@@ -404,6 +405,7 @@ class BatchCabana:
                 cv2.imwrite(join_path(self.export_dir, os.path.splitext(img_name)[0],
                                       "GapImage.png"), color_result)
                 areas = np.pi * (np.array(final_circles)[:, 2] ** 2) * self.ims_res**2
+                radii = np.sqrt(areas / np.pi)
                 names.append(img_name)
                 means.append(np.mean(areas))
                 stds.append(np.std(areas))
@@ -411,6 +413,11 @@ class BatchCabana:
                 median.append(np.median(areas))
                 percentile95.append(np.percentile(areas, 95))
                 counts.append(areas.size)
+                means_radius.append(np.mean(radii))
+                stds_radius.append(np.std(radii))
+                pct5_radius.append(np.percentile(radii, 5))
+                medians_radius.append(np.median(radii))
+                pct95_radius.append(np.percentile(radii, 95))
                 final_circles = np.array(final_circles)
                 data = {'Area (µm²)': areas,
                         'X': final_circles[:, 1],
@@ -426,7 +433,12 @@ class BatchCabana:
                         'Percentile5 (All gaps area in µm²)': percentile5,
                         'Median (All gaps area in µm²)': median,
                         'Percentile95 (All gaps area in µm²)': percentile95,
-                        'Gap Circles Count (All)': counts}
+                        'Gap Circles Count (All)': counts,
+                        'Mean (All gaps radius in µm)': means_radius,
+                        'Std (All gaps radius in µm)': stds_radius,
+                        'Percentile5 (All gaps radius in µm)': pct5_radius,
+                        'Median (All gaps radius in µm)': medians_radius,
+                        'Percentile95 (All gaps radius in µm)': pct95_radius}
                 df = pd.DataFrame(data)
                 df.to_csv(join_path(gap_result_dir, "GapAnalysisSummary.csv"), index=False)
 
@@ -668,11 +680,11 @@ class BatchCabana:
                     medians_total.append(gaps_total_row['Median (All gaps area in µm²)'])
                     pct5_total.append(gaps_total_row['Percentile5 (All gaps area in µm²)'])
                     pct95_total.append(gaps_total_row['Percentile95 (All gaps area in µm²)'])
-                    means_radius_total.append(np.sqrt(gaps_total_row['Mean (All gaps area in µm²)'] / np.pi))
-                    stds_radius_total.append(np.sqrt(gaps_total_row['Std (All gaps area in µm²)'] / np.pi))
-                    medians_radius_total.append(np.sqrt(gaps_total_row['Median (All gaps area in µm²)'] / np.pi))
-                    pct5_radius_total.append(np.sqrt(gaps_total_row['Percentile5 (All gaps area in µm²)'] / np.pi))
-                    pct95_radius_total.append(np.sqrt(gaps_total_row['Percentile95 (All gaps area in µm²)'] / np.pi))
+                    means_radius_total.append(gaps_total_row['Mean (All gaps radius in µm)'])
+                    stds_radius_total.append(gaps_total_row['Std (All gaps radius in µm)'])
+                    medians_radius_total.append(gaps_total_row['Median (All gaps radius in µm)'])
+                    pct5_radius_total.append(gaps_total_row['Percentile5 (All gaps radius in µm)'])
+                    pct95_radius_total.append(gaps_total_row['Percentile95 (All gaps radius in µm)'])
                     counts_total.append(gaps_total_row['Gap Circles Count (All)'])
 
                 else:
