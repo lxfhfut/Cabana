@@ -11,23 +11,6 @@ from scipy.interpolate import splprep, splev
 from skimage.morphology import skeletonize, remove_small_holes
 
 
-def _build_crossing_lut():
-    """Precompute crossing numbers for all 256 possible 8-neighbor configurations.
-
-    Crossing number = number of 0→1 transitions in the clockwise 8-neighborhood.
-    Bit encoding (clockwise from N): N=bit0, NE=bit1, E=bit2, SE=bit3, S=bit4, SW=bit5, W=bit6, NW=bit7.
-    A pixel with CN=1 is an endpoint; CN≥3 is a branch point; CN=2 is interior.
-    """
-    lut = np.zeros(256, dtype=np.uint8)
-    for idx in range(256):
-        bits = [(idx >> i) & 1 for i in range(8)]
-        lut[idx] = sum(abs(bits[i] - bits[(i + 1) % 8]) for i in range(8)) // 2
-    return lut
-
-
-_CROSSING_LUT = _build_crossing_lut()
-
-
 class SkeletonAnalyzer:
     """
     Analyzes the morphology of skeletonized structures in binary images.
@@ -122,26 +105,6 @@ class SkeletonAnalyzer:
 
         # Reset graph representation
         self.subgraphs = []
-
-    @staticmethod
-    def _compute_cn_map(skel_binary):
-        """Return crossing-number map for a binary skeleton image (uint8, 0/1 values).
-
-        Uses the precomputed _CROSSING_LUT. Bit encoding of 8-neighborhood (clockwise from N):
-        N=bit0, NE=bit1, E=bit2, SE=bit3, S=bit4, SW=bit5, W=bit6, NW=bit7.
-        """
-        padded = np.pad(skel_binary, 1, mode='constant')
-        nb_codes = (
-            padded[:-2,  1:-1].astype(np.uint16)          +   # N  (bit 0)
-            padded[:-2,  2:  ].astype(np.uint16) * 2      +   # NE (bit 1)
-            padded[1:-1, 2:  ].astype(np.uint16) * 4      +   # E  (bit 2)
-            padded[2:,   2:  ].astype(np.uint16) * 8      +   # SE (bit 3)
-            padded[2:,   1:-1].astype(np.uint16) * 16     +   # S  (bit 4)
-            padded[2:,   :-2 ].astype(np.uint16) * 32     +   # SW (bit 5)
-            padded[1:-1, :-2 ].astype(np.uint16) * 64     +   # W  (bit 6)
-            padded[:-2,  :-2 ].astype(np.uint16) * 128        # NW (bit 7)
-        )
-        return _CROSSING_LUT[nb_codes]
 
     @staticmethod
     @jit(nopython=True)
@@ -531,14 +494,49 @@ class SkeletonAnalyzer:
             # Relabel after deleting short skeletons
             labels, num = ndi.label(self.skel_image, eight_con)
 
-        # Classify each skeleton pixel by its crossing number (CN):
-        #   CN = 1  → endpoint   (one foreground run around the pixel)
-        #   CN = 2  → interior   (straight or curved path through pixel)
-        #   CN ≥ 3  → branch point (pixel where ≥3 branches meet)
-        # Unlike simple neighbor-count, CN correctly classifies staircase pixels
-        # (e.g. NW+N+E neighbors = CN 2, not 3) produced by skeletonize().
-        cn_map = SkeletonAnalyzer._compute_cn_map(
-            (self.skel_image == self.FOREGROUND).astype(np.uint8))
+        # Count the number of neighbors for each pixel
+        kernel = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=np.uint8)
+        num_neighbors = ndi.convolve((self.skel_image == self.FOREGROUND).astype(np.uint8),
+                                     kernel, mode="constant")
+
+        height, width = self.skel_image.shape[:2]
+
+        def get_binary_3x3(img, row, col):
+            i1 = False if row - 1 < 0 or col - 1 < 0 else img[row - 1, col - 1] == self.FOREGROUND
+            i2 = False if row - 1 < 0 else img[row - 1, col] == self.FOREGROUND
+            i3 = False if row - 1 < 0 or col + 1 >= width else img[row - 1, col + 1] == self.FOREGROUND
+            i4 = False if col - 1 < 0 else img[row, col - 1] == self.FOREGROUND
+            i5 = True  # Center pixel (always foreground in this context)
+            i6 = False if col + 1 >= width else img[row, col + 1] == self.FOREGROUND
+            i7 = False if row + 1 >= height or col - 1 < 0 else img[row + 1, col - 1] == self.FOREGROUND
+            i8 = False if row + 1 >= height else img[row + 1, col] == self.FOREGROUND
+            i9 = False if row + 1 >= height or col + 1 >= width else img[row + 1, col + 1] == self.FOREGROUND
+            return np.array([[i1, i2, i3], [i4, i5, i6], [i7, i8, i9]])
+
+        # Define structural elements for endpoint detection
+        selems_2 = list()
+        selems_2.append(np.array([[0, 0, 1], [0, 1, 1], [0, 0, 0]]))
+        selems_2.append(np.array([[1, 0, 0], [1, 1, 0], [0, 0, 0]]))
+        selems_2 = [np.rot90(selems_2[i], k=j) for i in range(2) for j in range(4)]
+
+        # Define structural elements for branch point detection with 3 neighbors
+        selems_3 = list()
+        selems_3.append(np.array([[0, 1, 0], [1, 1, 1], [0, 0, 0]]))
+        selems_3.append(np.array([[1, 0, 1], [0, 1, 0], [1, 0, 0]]))
+        selems_3.append(np.array([[1, 0, 1], [0, 1, 0], [0, 1, 0]]))
+        selems_3.append(np.array([[0, 1, 0], [1, 1, 0], [0, 0, 1]]))
+        selems_3.append(np.array([[0, 0, 1], [1, 1, 0], [0, 0, 1]]))
+        selems_3 = [np.rot90(selems_3[i], k=j) for i in range(5) for j in range(4)]
+
+        # Define structural elements for branch point detection with 4 neighbors
+        selems_4 = selems_3.copy()
+        selems_4.append(np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]]))
+        selems_4.append(np.array([[1, 0, 1], [0, 1, 0], [1, 0, 1]]))
+        selems_tmp = list()
+        selems_tmp.append(np.array([[0, 0, 1], [1, 1, 0], [0, 1, 1]]))
+        selems_tmp.append(np.array([[0, 1, 0], [0, 1, 1], [1, 1, 0]]))
+        selems_tmp.append(np.array([[0, 1, 0], [1, 1, 1], [1, 0, 0]]))
+        selems_4.extend([np.rot90(selems_tmp[i], k=j) for i in range(3) for j in range(4)])
 
         self.pruned_image = self.skel_image.copy()
 
@@ -551,15 +549,32 @@ class SkeletonAnalyzer:
             row_start, row_end = row_idx.min(), row_idx.max()
             col_start, col_end = col_idx.min(), col_idx.max()
 
-            # Classify by crossing number
+            # Find endpoints and branch points
             endpoints, branchpoints = [], []
             for row in range(row_start, row_end + 1):
                 for col in range(col_start, col_end + 1):
                     if canvas[row, col] == self.FOREGROUND:
-                        cn = cn_map[row, col]
-                        if cn == 1:
+                        if num_neighbors[row, col] == 1:
                             endpoints.append((row, col))
-                        elif cn >= 3:
+                        elif num_neighbors[row, col] == 2:
+                            binary = get_binary_3x3(self.skel_image, row, col)
+                            for selem in selems_2:
+                                if not np.logical_xor(binary, selem).any():
+                                    endpoints.append((row, col))
+                                    break
+                        elif num_neighbors[row, col] == 3:
+                            binary = get_binary_3x3(self.skel_image, row, col)
+                            for selem in selems_3:
+                                if not np.logical_xor(binary, selem).any():
+                                    branchpoints.append((row, col))
+                                    break
+                        elif num_neighbors[row, col] == 4:
+                            binary = get_binary_3x3(self.skel_image, row, col)
+                            for selem in selems_4:
+                                if not np.logical_xor(binary, selem).any():
+                                    branchpoints.append((row, col))
+                                    break
+                        elif num_neighbors[row, col] > 4:
                             branchpoints.append((row, col))
 
             # Create a graph for this component
@@ -725,8 +740,44 @@ class SkeletonAnalyzer:
         The visualization is stored in self.pts_image.
         """
 
-        cn_map = SkeletonAnalyzer._compute_cn_map(
-            (self.pruned_image == self.FOREGROUND).astype(np.uint8))
+        def get_binary_3x3(img, row, col):
+            """Extract a 3x3 binary neighborhood around a point as a boolean matrix."""
+            i1 = False if row - 1 < 0 or col - 1 < 0 else img[row - 1, col - 1] == self.FOREGROUND
+            i2 = False if row - 1 < 0 else img[row - 1, col] == self.FOREGROUND
+            i3 = False if row - 1 < 0 or col + 1 >= width else img[row - 1, col + 1] == self.FOREGROUND
+            i4 = False if col - 1 < 0 else img[row, col - 1] == self.FOREGROUND
+            i5 = True  # Center pixel is always foreground
+            i6 = False if col + 1 >= width else img[row, col + 1] == self.FOREGROUND
+            i7 = False if row + 1 >= height or col - 1 < 0 else img[row + 1, col - 1] == self.FOREGROUND
+            i8 = False if row + 1 >= height else img[row + 1, col] == self.FOREGROUND
+            i9 = False if row + 1 >= height or col + 1 >= width else img[row + 1, col + 1] == self.FOREGROUND
+            return np.array([[i1, i2, i3], [i4, i5, i6], [i7, i8, i9]])
+
+        kernel = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=np.uint8)
+        num_neighbors = ndi.convolve((self.pruned_image == self.FOREGROUND).astype(np.uint8),
+                                     kernel, mode="constant")
+
+        # Define structural elements for endpoint detection (2 neighbors)
+        selems_2 = list()
+        selems_2.append(np.array([[0, 0, 1], [0, 1, 1], [0, 0, 0]]))
+        selems_2.append(np.array([[1, 0, 0], [1, 1, 0], [0, 0, 0]]))
+        selems_2 = [np.rot90(selems_2[i], k=j) for i in range(2) for j in range(4)]
+
+        # Define structural elements for branch point detection (3 neighbors)
+        selems_3 = list()
+        selems_3.append(np.array([[0, 1, 0], [1, 1, 1], [0, 0, 0]]))
+        selems_3.append(np.array([[1, 0, 1], [0, 1, 0], [1, 0, 0]]))
+        selems_3.append(np.array([[1, 0, 1], [0, 1, 0], [0, 1, 0]]))
+        selems_3.append(np.array([[0, 1, 0], [1, 1, 0], [0, 0, 1]]))
+        selems_3.append(np.array([[0, 0, 1], [1, 1, 0], [0, 0, 1]]))
+        selems_3 = [np.rot90(selems_3[i], k=j) for i in range(5) for j in range(4)]
+
+        # Define structural elements for branch point detection (4 neighbors)
+        selems_4 = selems_3.copy()
+        selems_4.append(np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]]))
+        selems_4.append(np.array([[1, 0, 1], [0, 1, 0], [1, 0, 1]]))
+        selems_tmp = np.array([[0, 0, 1], [1, 1, 0], [0, 1, 1]])
+        selems_4.extend([np.rot90(selems_tmp, k=j) for j in range(4)])
 
         self.pts_image = np.repeat(self.pruned_image[:, :, None], 3, axis=2)
         height, width = self.pruned_image.shape[:2]
@@ -736,11 +787,31 @@ class SkeletonAnalyzer:
         for row in range(height):
             for col in range(width):
                 if self.skel_image[row, col] == self.FOREGROUND:
-                    cn = cn_map[row, col]
-                    if cn == 1:
+                    if num_neighbors[row, col] == 1:
                         cv2.circle(self.pts_image, (col, row), 3, (0, 255, 0), 2)
                         end_pts_cnt += 1
-                    elif cn >= 3:
+                    elif num_neighbors[row, col] == 2:
+                        binary = get_binary_3x3(self.skel_image, row, col)
+                        for selem in selems_2:
+                            if not np.logical_xor(binary, selem).any():
+                                cv2.circle(self.pts_image, (col, row), 3, (0, 255, 0), 2)
+                                end_pts_cnt += 1
+                                break
+                    elif num_neighbors[row, col] == 3:
+                        binary = get_binary_3x3(self.skel_image, row, col)
+                        for selem in selems_3:
+                            if not np.logical_xor(binary, selem).any():
+                                cv2.circle(self.pts_image, (col, row), 3, (255, 255, 0), 2)
+                                brh_pts_cnt += 1
+                                break
+                    elif num_neighbors[row, col] == 4:
+                        binary = get_binary_3x3(self.skel_image, row, col)
+                        for selem in selems_4:
+                            if not np.logical_xor(binary, selem).any():
+                                cv2.circle(self.pts_image, (col, row), 3, (255, 255, 0), 2)
+                                brh_pts_cnt += 1
+                                break
+                    elif num_neighbors[row, col] > 4:
                         cv2.circle(self.pts_image, (col, row), 3, (255, 255, 0), 2)
                         brh_pts_cnt += 1
 
