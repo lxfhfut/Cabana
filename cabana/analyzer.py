@@ -152,6 +152,30 @@ class SkeletonAnalyzer:
 
         # Handle special cases based on point availability
         if not end_points and not brh_points:
+            # Pure cycle: walk around from any foreground pixel
+            rows, cols = np.where(skel_image == foreground)
+            if len(rows) == 0:
+                return lengths_paths
+            start = (int(rows[0]), int(cols[0]))
+            path = [start]
+            prev = None
+            current = start
+            total_length = 0.0
+            while True:
+                neighbors = [n for n in SkeletonAnalyzer.get_neighbors(skel_image, current, foreground)
+                             if n != prev]
+                if not neighbors:
+                    break
+                nxt = neighbors[0]
+                dist = np.sqrt((nxt[0] - current[0]) ** 2.0 + (nxt[1] - current[1]) ** 2.0)
+                total_length += dist
+                if nxt == start:
+                    break
+                prev = current
+                current = nxt
+                path.append(current)
+            if len(path) > 1:
+                lengths_paths.append((start, start, total_length, path, 'loop'))
             return lengths_paths
         elif end_points and not brh_points:  # only end points available
             if len(end_points) == 1:
