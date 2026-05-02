@@ -246,6 +246,7 @@ class SkeletonAnalyzer:
                         stack.append((neighbor, length + dist, new_path))
 
             # Then trace from branch points to branch points
+            visited = set()  # fresh set — phase-1 visited pixels must not block brh-to-brh traversal
             for src in brh_points:
                 # The last element in the tuple indicates if another point has been visited
                 stack = [(src, 0, [src], False)]
