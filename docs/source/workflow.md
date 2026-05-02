@@ -113,7 +113,7 @@ v. **Exports**
    d. Energy: magnitude of gradient vector 
    e. GapImage: Map of tissue gaps (red) -- based on non-segmented image
    f. GapImage_intra_gaps: Map of intra-fibre gaps (green) -- based on segmentation ROI
-   g. Length map: higher intensity values represent longer fibres. The image intensities are stored as unsigned 16-bit integers. Best viewed in ImageJ/FIJI.
+   g. Length map: pixel intensities represent fibre length in µm, stored as 32-bit floats (float32 TIFF).
    h. Mask: detected fibres and fibre branches
    i. Orientation: orientation angles in radians ranging from to.
    j. Skeleton: shows branchpoints (yellow circles) and endpoints (red circles) of detected fibre spines

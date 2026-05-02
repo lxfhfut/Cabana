@@ -10,7 +10,7 @@
 
 1. Install miniconda. The default installation location is `C:\\ProgramData\\miniconda3` on Windows. Verify the installation by running `conda env list` in the command line. If the installation was successful, you should be able to see a `base` env and the path to the env.
 
-2. Create a conda env named `cabana` (you can change it to any name you want) by running `conda create -n cabana python=3.10` in the command line. If the env is created correctly, activate the created conda env by running `conda activate cabana`.
+2. Create a conda env named `cabana` (you can change it to any name you want) by running `conda create -n cabana python=3.12` in the command line. If the env is created correctly, activate the created conda env by running `conda activate cabana`.
 
 3. Install Cabana by running `pip install -U cabana`. If the installation is successful, you can start Cabana GUI by running `python -m cabana`. Alternatively, you can import Cabana in your code for more customized analysis (see examples in <a href="_static/tutorial.ipynb" target="_blank" rel="noopener">tutorial.ipynb</a>).
 
