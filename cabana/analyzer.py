@@ -11,6 +11,23 @@ from scipy.interpolate import splprep, splev
 from skimage.morphology import skeletonize, remove_small_holes
 
 
+def _build_crossing_lut():
+    """Precompute crossing numbers for all 256 possible 8-neighbor configurations.
+
+    Crossing number = number of 0→1 transitions in the clockwise 8-neighborhood.
+    Bit encoding (clockwise from N): N=bit0, NE=bit1, E=bit2, SE=bit3, S=bit4, SW=bit5, W=bit6, NW=bit7.
+    A pixel with CN=1 is an endpoint; CN≥3 is a branch point; CN=2 is interior.
+    """
+    lut = np.zeros(256, dtype=np.uint8)
+    for idx in range(256):
+        bits = [(idx >> i) & 1 for i in range(8)]
+        lut[idx] = sum(abs(bits[i] - bits[(i + 1) % 8]) for i in range(8)) // 2
+    return lut
+
+
+_CROSSING_LUT = _build_crossing_lut()
+
+
 class SkeletonAnalyzer:
     """
     Analyzes the morphology of skeletonized structures in binary images.
@@ -105,6 +122,26 @@ class SkeletonAnalyzer:
 
         # Reset graph representation
         self.subgraphs = []
+
+    @staticmethod
+    def _compute_cn_map(skel_binary):
+        """Return crossing-number map for a binary skeleton image (uint8, 0/1 values).
+
+        Uses the precomputed _CROSSING_LUT. Bit encoding of 8-neighborhood (clockwise from N):
+        N=bit0, NE=bit1, E=bit2, SE=bit3, S=bit4, SW=bit5, W=bit6, NW=bit7.
+        """
+        padded = np.pad(skel_binary, 1, mode='constant')
+        nb_codes = (
+            padded[:-2,  1:-1].astype(np.uint16)          +   # N  (bit 0)
+            padded[:-2,  2:  ].astype(np.uint16) * 2      +   # NE (bit 1)
+            padded[1:-1, 2:  ].astype(np.uint16) * 4      +   # E  (bit 2)
+            padded[2:,   2:  ].astype(np.uint16) * 8      +   # SE (bit 3)
+            padded[2:,   1:-1].astype(np.uint16) * 16     +   # S  (bit 4)
+            padded[2:,   :-2 ].astype(np.uint16) * 32     +   # SW (bit 5)
+            padded[1:-1, :-2 ].astype(np.uint16) * 64     +   # W  (bit 6)
+            padded[:-2,  :-2 ].astype(np.uint16) * 128        # NW (bit 7)
+        )
+        return _CROSSING_LUT[nb_codes]
 
     @staticmethod
     @jit(nopython=True)
@@ -494,10 +531,14 @@ class SkeletonAnalyzer:
             # Relabel after deleting short skeletons
             labels, num = ndi.label(self.skel_image, eight_con)
 
-        # Count the number of neighbors for each pixel
-        kernel = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=np.uint8)
-        num_neighbors = ndi.convolve((self.skel_image == self.FOREGROUND).astype(np.uint8),
-                                     kernel, mode="constant")
+        # Classify each skeleton pixel by its crossing number (CN):
+        #   CN = 1  → endpoint   (one foreground run around the pixel)
+        #   CN = 2  → interior   (straight or curved path through pixel)
+        #   CN ≥ 3  → branch point (pixel where ≥3 branches meet)
+        # Unlike simple neighbor-count, CN correctly classifies staircase pixels
+        # (e.g. NW+N+E neighbors = CN 2, not 3) produced by skeletonize().
+        cn_map = SkeletonAnalyzer._compute_cn_map(
+            (self.skel_image == self.FOREGROUND).astype(np.uint8))
 
         self.pruned_image = self.skel_image.copy()
 
@@ -510,17 +551,15 @@ class SkeletonAnalyzer:
             row_start, row_end = row_idx.min(), row_idx.max()
             col_start, col_end = col_idx.min(), col_idx.max()
 
-            # Find endpoints and branch points using neighbor count.
-            # skeletonize() produces 1-pixel-wide skeletons, so:
-            #   num_neighbors == 1  → endpoint
-            #   num_neighbors >= 3  → branch point
+            # Classify by crossing number
             endpoints, branchpoints = [], []
             for row in range(row_start, row_end + 1):
                 for col in range(col_start, col_end + 1):
                     if canvas[row, col] == self.FOREGROUND:
-                        if num_neighbors[row, col] == 1:
+                        cn = cn_map[row, col]
+                        if cn == 1:
                             endpoints.append((row, col))
-                        elif num_neighbors[row, col] >= 3:
+                        elif cn >= 3:
                             branchpoints.append((row, col))
 
             # Create a graph for this component
@@ -686,9 +725,8 @@ class SkeletonAnalyzer:
         The visualization is stored in self.pts_image.
         """
 
-        kernel = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=np.uint8)
-        num_neighbors = ndi.convolve((self.pruned_image == self.FOREGROUND).astype(np.uint8),
-                                     kernel, mode="constant")
+        cn_map = SkeletonAnalyzer._compute_cn_map(
+            (self.pruned_image == self.FOREGROUND).astype(np.uint8))
 
         self.pts_image = np.repeat(self.pruned_image[:, :, None], 3, axis=2)
         height, width = self.pruned_image.shape[:2]
@@ -698,10 +736,11 @@ class SkeletonAnalyzer:
         for row in range(height):
             for col in range(width):
                 if self.skel_image[row, col] == self.FOREGROUND:
-                    if num_neighbors[row, col] == 1:
+                    cn = cn_map[row, col]
+                    if cn == 1:
                         cv2.circle(self.pts_image, (col, row), 3, (0, 255, 0), 2)
                         end_pts_cnt += 1
-                    elif num_neighbors[row, col] >= 3:
+                    elif cn >= 3:
                         cv2.circle(self.pts_image, (col, row), 3, (255, 255, 0), 2)
                         brh_pts_cnt += 1
 
