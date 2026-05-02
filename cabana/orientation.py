@@ -81,7 +81,10 @@ class OrientationAnalyzer:
 
         # Normalize to uint8 if needed
         if self.image.dtype != np.uint8:
-            self.image = ((image - image.min()) / (image.max() - image.min()) * 255).astype(np.uint8)
+            lo, hi = self.image.min(), self.image.max()
+            if hi <= lo:
+                return
+            self.image = ((self.image - lo) / (hi - lo) * 255).astype(np.uint8)
 
         # Convert to grayscale if image is RGB
         self.gray = cv2.cvtColor(self.image, cv2.COLOR_RGB2GRAY) if self.image.ndim == 3 else self.image

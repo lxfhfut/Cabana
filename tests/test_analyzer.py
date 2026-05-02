@@ -89,30 +89,6 @@ class TestInit:
 
 
 # ---------------------------------------------------------------------------
-# count_neighbors (static, numba JIT)
-# ---------------------------------------------------------------------------
-
-class TestCountNeighbors:
-    def test_center_pixel_4_neighbors(self):
-        # 3x3 image with all pixels set to 1
-        img = np.ones((5, 5), dtype=np.int32)
-        count = SkeletonAnalyzer.count_neighbors(img, 2, 2, radius=1, val=1)
-        assert count == 8  # 8 neighbors in 3x3 minus center
-
-    def test_zero_neighbors_in_empty(self):
-        img = np.zeros((5, 5), dtype=np.int32)
-        count = SkeletonAnalyzer.count_neighbors(img, 2, 2, radius=1, val=1)
-        assert count == 0
-
-    def test_corner_pixel(self):
-        img = np.ones((5, 5), dtype=np.int32)
-        # Corner at (0,0) has fewer neighbors in the grid but count_neighbors
-        # uses fixed bounds; use interior point instead
-        count = SkeletonAnalyzer.count_neighbors(img, 1, 1, radius=1, val=1)
-        assert count == 8  # All 8 neighbors present for interior point
-
-
-# ---------------------------------------------------------------------------
 # get_neighbors (static)
 # ---------------------------------------------------------------------------
 

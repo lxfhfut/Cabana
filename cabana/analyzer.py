@@ -107,29 +107,6 @@ class SkeletonAnalyzer:
         self.subgraphs = []
 
     @staticmethod
-    @jit(nopython=True)
-    def count_neighbors(skel_image, y, x, radius=1, val=1):
-        """
-        Count neighboring pixels with specified value.
-
-        Args:
-            skel_image (ndarray): Skeleton image
-            y (int): Y-coordinate of the pixel
-            x (int): X-coordinate of the pixel
-            radius (int): Neighborhood radius
-            val (int): Value to count
-
-        Returns:
-            int: Number of neighbors with the specified value
-        """
-        count = 0
-        for i in range(y - radius, y + radius + 1):
-            for j in range(x - radius, x + radius + 1):
-                if skel_image[i, j] == val and ((y != i) or (x != j)):
-                    count += 1
-        return count
-
-    @staticmethod
     def traverse_skeletons(skel_image, end_points, brh_points, foreground):
         """
         Traverse the skeleton to identify and measure paths between key points.
@@ -352,44 +329,6 @@ class SkeletonAnalyzer:
         return neighbors
 
     @staticmethod
-    @jit(nopython=True)
-    def is_branchpoint(skel_image, row, col, foreground):
-        """
-        Determine if a pixel is a branch point based on its neighborhood pattern.
-
-        Args:
-            skel_image (ndarray): Binary skeleton image
-            row (int): Row index of the pixel
-            col (int): Column index of the pixel
-            foreground (int): Pixel value representing the foreground
-
-        Returns:
-            bool: True if the pixel is a branch point, False otherwise
-        """
-        height, width = skel_image.shape[:2]
-        # Search north and south
-        for y in [row - 1, row + 1]:
-            previous = -1
-            for x in range(col - 1, col + 2):
-                if x < 0 or x >= width or y < 0 or y >= height:
-                    break
-                if skel_image[y, x] == foreground and previous == foreground:
-                    return False
-                previous = skel_image[y, x]
-
-        # Search east and west
-        for x in [col - 1, col + 1]:
-            previous = -1
-            for y in range(row - 1, row + 2):
-                if x < 0 or x >= width or y < 0 or y >= height:
-                    break
-                if skel_image[y, x] == foreground and previous == foreground:
-                    return False
-                previous = skel_image[y, x]
-
-        return True
-
-    @staticmethod
     def longest_path(graph, wgt='length'):
         """
         Find the longest path in a graph.
@@ -425,46 +364,6 @@ class SkeletonAnalyzer:
             return longest_path, max_length
         else:
             return [], 0
-
-    @staticmethod
-    @jit(nopython=True)
-    def is_endpoint(skel_image, row, col, background):
-        """
-        Determine if a pixel is an endpoint based on the longest chain of background pixels.
-
-        Args:
-            skel_image (ndarray): Binary skeleton image
-            row (int): Row index of the pixel
-            col (int): Column index of the pixel
-            background (int): Pixel value representing the background
-
-        Returns:
-            bool: True if the pixel is an endpoint, False otherwise
-        """
-        # Define the 8-connected neighborhood relative positions
-        neighbors = [(-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1)]
-
-        longest_chain = 0
-        current_chain = 0
-
-        # Start checking from the pixel's right neighbor and move in a circular manner
-        for i in range(len(neighbors) * 2):  # Multiply by 2 to allow wrapping around the neighborhood
-            dx, dy = neighbors[i % len(neighbors)]
-            ny, nx = row + dy, col + dx
-
-            # Check if the neighbor is within the image bounds
-            if 0 <= ny < skel_image.shape[0] and 0 <= nx < skel_image.shape[1]:
-                if skel_image[ny, nx] == background:  # Background pixel
-                    current_chain += 1
-                    longest_chain = max(longest_chain, current_chain)
-                else:  # Foreground pixel, reset chain length
-                    current_chain = 0
-            else:
-                # Treat out-of-bounds as background to continue the chain
-                current_chain += 1
-
-        # If the longest chain of background pixels is 5 or more, it's considered an endpoint
-        return longest_chain >= 5
 
     def construct_graphs(self):
         """
