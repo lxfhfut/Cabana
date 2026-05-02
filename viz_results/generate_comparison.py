@@ -1,10 +1,12 @@
 """
-Before/after visualization for analyzer.py fixes #1-4 and batch.py fix #5.
+Before/after visualization for analyzer.py fixes #2-4 and batch.py fix #5.
+Baseline is extracted from git commit 8620c39 (pre-fix state) at runtime.
 Saves all figures to the viz_results/ folder.
 """
 
 import os
 import sys
+import subprocess
 import importlib.util
 import numpy as np
 import matplotlib
@@ -14,28 +16,37 @@ import matplotlib.patches as mpatches
 import scipy.ndimage as ndi
 import imageio.v3 as iio
 from pathlib import Path
-from skimage.morphology import skeletonize, remove_small_holes
+from skimage.morphology import skeletonize
 from skimage.draw import circle_perimeter
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
 VIZ_DIR = PROJECT_ROOT / "viz_results"
 
+sys.path.insert(0, str(PROJECT_ROOT))
 from cabana.log import Log
 Log.init_log_path(str(VIZ_DIR))
 
 from cabana.analyzer import SkeletonAnalyzer as NewAnalyzer
 
-# ── Load the pre-fix analyzer ────────────────────────────────────────────────
-spec = importlib.util.spec_from_file_location(
-    "analyzer_before", "/tmp/analyzer_before_fixed.py"
+# ── Extract pre-fix baseline from git (commit 8620c39) ─────────────────────
+_BEFORE_PATH = "/tmp/analyzer_before_8620c39.py"
+result = subprocess.run(
+    ["git", "show", "8620c39:cabana/analyzer.py"],
+    capture_output=True, text=True, cwd=str(PROJECT_ROOT), check=True
 )
+code = result.stdout
+code = code.replace("from .log import Log", "from cabana.log import Log")
+code = code.replace("from .detector import FibreDetector", "from cabana.detector import FibreDetector")
+with open(_BEFORE_PATH, "w") as f:
+    f.write(code)
+
+spec = importlib.util.spec_from_file_location("analyzer_before", _BEFORE_PATH)
 _mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(_mod)
 OldAnalyzer = _mod.SkeletonAnalyzer
 
 
-# ── Helper: run both analyzers on a numpy binary image ──────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 def run_both(binary_img, dark_line=False, skel_thresh=0, branch_thresh=0):
     results = []
@@ -50,13 +61,12 @@ def run_both(binary_img, dark_line=False, skel_thresh=0, branch_thresh=0):
 
 def run_both_preskel(skel_img, dark_line=False, skel_thresh=0, branch_thresh=0):
     """Run both analyzers on a pre-built skeleton (bypasses skeletonize step)."""
-    FOREGROUND = 255
     results = []
     for Cls in (OldAnalyzer, NewAnalyzer):
         sa = Cls(skel_thresh=skel_thresh, branch_thresh=branch_thresh,
                  dark_line=dark_line)
         sa.raw_image = skel_img.copy()
-        sa.FOREGROUND = FOREGROUND
+        sa.FOREGROUND = 255
         sa.BACKGROUND = 0
         sa.skel_image = skel_img.copy()
         sa.construct_graphs()
@@ -79,58 +89,15 @@ def metrics_text(sa):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Synthetic skeletons (direct pixel arrays, no skeletonize ambiguity)
+# Synthetic skeletons
 # ═══════════════════════════════════════════════════════════════════════════
 
-def make_missing_pattern_junction():
+def make_circle_loop():
     """
-    Branch point at (15,15) with neighbors {NW, N, S} — one of the 40
-    3-neighbor patterns missing from selems_3.  Old code misses it,
-    so the component is misclassified as >2-endpoints (after the fix
-    it is a proper T-junction with 1 branch point).
+    Pure circular skeleton — no endpoints, no branch points.
+    Old code: empty path list → total_length = 0.
+    Fix #4: traces the closed chain and records the full circumference.
     """
-    img = np.zeros((30, 30), dtype=np.uint8)
-    cx, cy = 15, 15
-    img[cy, cx] = 255
-    for i in range(1, 12):
-        img[cy - i, cx - i] = 255   # NW arm
-    for i in range(1, 12):
-        img[cy - i, cx] = 255       # N arm
-    for i in range(1, 12):
-        img[cy + i, cx] = 255       # S arm
-    return img
-
-
-def make_covered_pattern_junction():
-    """
-    Standard T-junction: branch pixel has N, W, E neighbors —
-    covered by selems_3[0]. Both old and new code handle this.
-    """
-    img = np.zeros((30, 35), dtype=np.uint8)
-    img[15, 5:30] = 255   # horizontal bar
-    img[4:15, 15] = 255   # vertical arm
-    return img
-
-
-def make_multi_junction():
-    """
-    Three T-junctions connected in a chain.  Mix of covered and
-    uncovered patterns; new code detects all, old code may miss some.
-    """
-    img = np.zeros((50, 120), dtype=np.uint8)
-    img[25, 10:110] = 255           # horizontal backbone
-    img[5:25, 30] = 255             # vertical arm 1 (standard T)
-    img[5:25, 60] = 255             # vertical arm 2
-    img[5:25, 90] = 255             # vertical arm 3
-    # Add short diagonal stubs to create non-standard patterns
-    for i in range(1, 8):
-        img[25 + i, 30 + i] = 255  # SE stub from junction 1
-        img[25 + i, 60 - i] = 255  # SW stub from junction 2
-    return img
-
-
-def make_loop():
-    """Pure circular skeleton — old code gives length 0, new code measures it."""
     img = np.zeros((80, 80), dtype=np.uint8)
     rr, cc = circle_perimeter(40, 40, 28)
     valid = (rr >= 0) & (rr < 80) & (cc >= 0) & (cc < 80)
@@ -138,30 +105,53 @@ def make_loop():
     return img
 
 
+def make_rect_loop():
+    """
+    Rectangular loop — wider and taller to show fix #4 generalises beyond
+    circles.  Same structural case: no endpoints, no branch points → old
+    code returns 0, new code measures the full perimeter.
+    """
+    img = np.zeros((70, 100), dtype=np.uint8)
+    img[10, 10:90] = 255   # top
+    img[60, 10:90] = 255   # bottom
+    img[10:61, 10] = 255   # left
+    img[10:61, 89] = 255   # right
+    return img
+
+
 # ═══════════════════════════════════════════════════════════════════════════
-# Figure 1 — Synthetic cases
+# Figure 1 — Fix #4: closed-loop skeletons
 # ═══════════════════════════════════════════════════════════════════════════
 
 cases_raw = [
-    ("{NW,N,S} junction\n(uncovered pattern, fix #1)", make_missing_pattern_junction()),
-    ("Standard T-junction\n(covered — reference)", make_covered_pattern_junction()),
-    ("Multi-junction chain\n(mixed patterns, fix #1)", make_multi_junction()),
-    ("Pure loop\n(fix #4: 0 → full length)", make_loop()),
+    ("Circular loop\n(fix #4: closed-loop\nskeletons were discarded)", make_circle_loop(), "full"),
+    ("Rectangular loop\n(fix #4 generalises to\nany closed-loop shape)", make_rect_loop(),  "preskel"),
 ]
 
-# Use pre-skeletonized analysis so patterns are exact
 cases = []
-for label, raw in cases_raw:
-    # For the "loop", analyze_image will produce a clean circle skeleton
-    if "loop" in label.lower():
-        old_sa, new_sa = run_both(raw, dark_line=False, skel_thresh=0, branch_thresh=0)
-    else:
+for label, raw, mode in cases_raw:
+    if mode == "preskel":
         old_sa, new_sa = run_both_preskel(raw, dark_line=False, skel_thresh=0, branch_thresh=0)
+    else:
+        old_sa, new_sa = run_both(raw, dark_line=False, skel_thresh=0, branch_thresh=0)
     cases.append((label, raw, old_sa, new_sa))
 
+# ── Inset: explain fixes #2 and #3 that are structurally hard to show
+# synthetically but are validated by the real-image improvement
+FIX23_NOTE = (
+    "Fixes #2 & #3 (also active):\n"
+    "  #2  Fresh visited set in brh-to-brh phase — prevents inter-branch\n"
+    "      edges from being blocked by end-arm traversal state.\n"
+    "  #3  Safety net for >2-endpoint components — finds all endpoint-pair\n"
+    "      paths when template matching misses the junction pixel.\n"
+    "Both fixes are structurally correct but hard to trigger with simple\n"
+    "synthetic cases; their combined effect is visible in the real image."
+)
+
 fig1, axes = plt.subplots(len(cases), 4, figsize=(16, 4.5 * len(cases)))
-fig1.suptitle("Synthetic skeleton tests: Before vs After fixes #1 & #4",
-              fontsize=13, fontweight='bold', y=1.005)
+fig1.suptitle("Synthetic skeleton tests: Before vs After fix #4 (closed-loop detection)\n"
+              "Fixes #2 & #3 also applied — see annotation",
+              fontsize=12, fontweight='bold', y=1.02)
 
 col_titles = ["Binary input", "Key points — BEFORE", "Key points — AFTER", "Metrics Δ"]
 for j, ct in enumerate(col_titles):
@@ -185,7 +175,8 @@ for i, (label, raw, old_sa, new_sa) in enumerate(cases):
     delta_len = new_sa.total_length - old_sa.total_length
     delta_brh = new_sa.num_branches - old_sa.num_branches
     delta_tip = new_sa.num_tips - old_sa.num_tips
-    color = 'lightgreen' if abs(delta_len) > 0.5 or delta_brh != 0 or delta_tip != 0 else 'lightyellow'
+    improved = abs(delta_len) > 0.5 or delta_brh != 0 or delta_tip != 0
+    color = 'lightgreen' if improved else 'lightyellow'
     txt = (f"BEFORE\n{metrics_text(old_sa)}\n\n"
            f"AFTER\n{metrics_text(new_sa)}\n\n"
            f"Δ length  : {delta_len:+.1f} px\n"
@@ -199,12 +190,15 @@ for i, (label, raw, old_sa, new_sa) in enumerate(cases):
         axes[i, j].set_xticks([])
         axes[i, j].set_yticks([])
 
-red_p    = mpatches.Patch(color=(1, 0, 0),   label='Endpoint (red)')
-yellow_p = mpatches.Patch(color=(1, 1, 0),   label='Branch point (yellow)')
+red_p    = mpatches.Patch(color=(1, 0, 0), label='Endpoint (red)')
+yellow_p = mpatches.Patch(color=(1, 1, 0), label='Branch point (yellow)')
 fig1.legend(handles=[red_p, yellow_p], loc='lower center', ncol=2,
-            fontsize=9, bbox_to_anchor=(0.5, -0.01))
+            fontsize=9, bbox_to_anchor=(0.5, 0.0))
+fig1.text(0.01, -0.04, FIX23_NOTE, fontsize=8, family='monospace',
+          transform=fig1.transFigure, va='top',
+          bbox=dict(boxstyle='round', facecolor='#e8f4fd', alpha=0.9))
 fig1.tight_layout()
-out1 = VIZ_DIR / "fig1_synthetic_fixes1_4.png"
+out1 = VIZ_DIR / "fig1_synthetic_fixes2_3_4.png"
 fig1.savefig(out1, dpi=120, bbox_inches='tight')
 print(f"Saved {out1}")
 
@@ -221,7 +215,7 @@ if real_img.ndim > 2:
 old_real, new_real = run_both(real_img, dark_line=True, skel_thresh=20, branch_thresh=10)
 
 fig2, axes2 = plt.subplots(2, 3, figsize=(18, 11))
-fig2.suptitle("Real image (sduiwew0hkdsa.png, dark fibres): Before vs After fixes #1–4",
+fig2.suptitle("Real image (sduiwew0hkdsa.png, dark fibres): Before vs After fixes #2–4",
               fontsize=13, fontweight='bold')
 
 def show_map(ax, data, title, cmap='hot'):
@@ -280,13 +274,13 @@ print(f"Saved {out2}")
 # ═══════════════════════════════════════════════════════════════════════════
 
 rng = np.random.default_rng(42)
-gap_areas     = rng.lognormal(mean=3.0, sigma=1.2, size=200)
-radii_true    = np.sqrt(gap_areas / np.pi)
+gap_areas      = rng.lognormal(mean=3.0, sigma=1.2, size=200)
+radii_true     = np.sqrt(gap_areas / np.pi)
 
-mean_area     = np.mean(gap_areas)
-std_area      = np.std(gap_areas)
-mean_r_wrong  = np.sqrt(mean_area / np.pi)
-std_r_wrong   = np.sqrt(std_area  / np.pi)
+mean_area      = np.mean(gap_areas)
+std_area       = np.std(gap_areas)
+mean_r_wrong   = np.sqrt(mean_area / np.pi)
+std_r_wrong    = np.sqrt(std_area  / np.pi)
 mean_r_correct = np.mean(radii_true)
 std_r_correct  = np.std(radii_true)
 
