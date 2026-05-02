@@ -158,8 +158,29 @@ class SkeletonAnalyzer:
                 Log.logger.warning("Isolated point found. Ignored!")
                 return lengths_paths
             elif len(end_points) > 2:
-                Log.logger.warning("A branch with more than 2 points was ignored!")
-                return lengths_paths
+                # Safety net: find paths between all endpoint pairs.
+                # After fix #1 (neighbor-count branch detection) this case should be rare.
+                ep_set = set(end_points)
+                found_pairs = set()
+                for start in end_points:
+                    local_visited = set()
+                    stack = [(start, 0, [start])]
+                    while stack:
+                        current, length, path = stack.pop()
+                        if current in local_visited:
+                            continue
+                        if current != start and current in ep_set:
+                            pair = tuple(sorted([start, current]))
+                            if pair not in found_pairs:
+                                found_pairs.add(pair)
+                                lengths_paths.append((start, current, length, path, 'end-to-end'))
+                            continue
+                        local_visited.add(current)
+                        for neighbor in SkeletonAnalyzer.get_neighbors(skel_image, current, foreground):
+                            if neighbor not in local_visited:
+                                dist = np.sqrt((neighbor[0] - current[0]) ** 2.0 +
+                                               (neighbor[1] - current[1]) ** 2.0)
+                                stack.append((neighbor, length + dist, path + [neighbor]))
             else:
                 # Traverse from first end point to the second
                 stack = [(end_points[0], 0, [end_points[0]])]
