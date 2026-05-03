@@ -17,7 +17,7 @@ from .correct import Correct
 # matplotlib.use('Agg', force=True)
 from PIL import Image, ExifTags
 from matplotlib.figure import Figure
-from scipy.ndimage import convolve, gaussian_filter1d
+from scipy.ndimage import convolve, gaussian_filter1d, median_filter
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from scipy.stats import multivariate_normal
@@ -1156,6 +1156,32 @@ def fix_locations(cont, width_l, width_r, grad_l, grad_r, pos_y, pos_x, sigma_ma
             px += correction[i] * nx
             py += correction[i] * ny
             pos_y[i], pos_x[i] = py, px
+
+    # Outlier rejection before smoothing: any single point whose width
+    # disagrees sharply with its local neighbours is almost certainly a
+    # surviving "spur" (a perpendicular scan that landed on a different
+    # fibre's edge). With Gaussian smoothing alone, one such outlier
+    # contaminates ±9 surrounding points; median-replace it first so the
+    # subsequent Gaussian filter has clean input.
+    def _reject_width_outliers(w, win=7, ratio=2.0, abs_min=0.3):
+        w = np.asarray(w, dtype=float)
+        if w.size < 3:
+            return w
+        med = median_filter(w, size=win, mode='nearest')
+        # Flag points that deviate by more than `ratio` (in either direction)
+        # from the local median. Skip points where the local median is
+        # itself implausibly small (would over-trigger inside genuine narrow
+        # stretches).
+        with np.errstate(divide='ignore', invalid='ignore'):
+            r1 = w / np.maximum(med, abs_min)
+            r2 = med / np.maximum(w, abs_min)
+        bad = (med > abs_min) & ((r1 > ratio) | (r2 > ratio))
+        out = w.copy()
+        out[bad] = med[bad]
+        return out
+
+    width_l = _reject_width_outliers(width_l)
+    width_r = _reject_width_outliers(width_r)
 
     # Update position of line and add extracted width
     width_l = gaussian_filter1d(width_l, 3.0, mode='mirror')

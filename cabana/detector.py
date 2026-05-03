@@ -829,7 +829,34 @@ class FibreDetector:
                             p1, p2 = pp1[y, x], pp2[y, x]
 
                             if abs(p1) <= 0.5 and abs(p2) <= 0.5:
+                                # Require the |grad| Hessian's principal
+                                # eigenvector at this pixel to be roughly
+                                # parallel to the line normal (ny, nx). At a
+                                # genuine line edge the gradient is
+                                # perpendicular to the line, so the eigenvector
+                                # of the largest |grad|-Hessian eigenvalue
+                                # aligns with the line normal. A scan that has
+                                # walked into a neighbouring fibre tends to
+                                # land on that fibre's edge, whose eigenvector
+                                # points along OUR line direction (≈90° off
+                                # our normal). Rejecting candidates more than
+                                # 60° off the normal kills those "spurs" while
+                                # still tolerating moderate curvature and
+                                # smoothing-induced misalignment.
+                                ev_dot = eigvecs[y, x, 0, 0] * ny + eigvecs[y, x, 1, 0] * nx
+                                if abs(ev_dot) < 0.5:
+                                    continue
                                 t = ny * (py - (r + direct * line[k, 0] + p1)) + nx * (px - (c + direct * line[k, 1] + p2))
+                                # Cap by the local detection scale: a half-
+                                # width larger than ~2.5·σ at this pixel
+                                # cannot have come from the line we're on at
+                                # this scale, so it is almost certainly a
+                                # neighbouring fibre's edge that survived the
+                                # orthogonality test (e.g. two near-parallel
+                                # fibres). Drop the candidate; fill_gaps
+                                # interpolates from neighbouring good points.
+                                if abs(t) > 2.5 * self.sigma_map[r, c]:
+                                    continue
                                 if direct == 1:
                                     grad_r[j] = grad_rl[y, x]
                                     width_r[j] = abs(t)
