@@ -19,6 +19,7 @@ from PyQt5.QtGui import QDesktopServices
 
 from .ui import *
 from .themes import THEMES, DEFAULT_THEME
+from . import __version__
 
 
 class MainWindow(QMainWindow):
@@ -240,6 +241,21 @@ class MainWindow(QMainWindow):
         self.theme_combo.setStyleSheet(self.theme_combo_style)
         self.theme_combo.currentTextChanged.connect(self._on_theme_changed)
         self.status_bar.addPermanentWidget(self.theme_combo)
+
+        # Version label (clickable -> About dialog)
+        self.version_button = QPushButton(f"v{__version__}")
+        self.version_button.setFlat(True)
+        self.version_button.setCursor(Qt.PointingHandCursor)
+        self.version_button.setToolTip("About Cabana")
+        self.version_button.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; "
+            f"color: {color_to_stylesheet(COLORS['text_dim'])}; "
+            f"font-size: {FONT_SIZES['small']}px; padding: 0 6px; }}"
+            f"QPushButton:hover {{ color: {color_to_stylesheet(COLORS['text'])}; "
+            f"text-decoration: underline; }}"
+        )
+        self.version_button.clicked.connect(self._show_about_dialog)
+        self.status_bar.addPermanentWidget(self.version_button)
 
         # Connect zoom updates from image panel
         self.image_panel.zoomChanged.connect(self._update_zoom_status)
@@ -1672,6 +1688,34 @@ class MainWindow(QMainWindow):
                 background: none;
             }}
         """)
+
+    def _show_about_dialog(self) -> None:
+        """Show the About dialog with version and project info."""
+        text_color = color_to_stylesheet(COLORS['text'])
+        link_color = color_to_stylesheet(COLORS['highlight'])
+        bg_color = color_to_stylesheet(COLORS['surface'])
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle("About Cabana")
+        dlg.setIcon(QMessageBox.Information)
+        dlg.setTextFormat(Qt.RichText)
+        dlg.setText(
+            f"<div style='color:{text_color}; font-size:14px;'>"
+            f"<b style='font-size:16px;'>Cabana</b> — CollAgen FiBre ANAlyzer<br>"
+            f"Version {__version__}<br><br>"
+            "A Python toolkit for analyzing collagen fibre architecture "
+            "in IHC and fluorescence microscopy images.<br><br>"
+            f"<a href='https://cabana.readthedocs.io' "
+            f"style='color:{link_color};'>Documentation</a> · "
+            f"<a href='https://pypi.org/project/cabana/' "
+            f"style='color:{link_color};'>PyPI</a>"
+            "</div>"
+        )
+        dlg.setStyleSheet(
+            f"QMessageBox {{ background-color: {bg_color}; }}"
+            f"QLabel {{ color: {text_color}; }}"
+            f"QPushButton {{ min-width: 60px; }}"
+        )
+        dlg.exec_()
 
     def _on_theme_changed(self, theme_name: str) -> None:
         """Handle theme selection from combo box."""
